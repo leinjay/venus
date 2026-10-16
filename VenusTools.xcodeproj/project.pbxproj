@@ -202,7 +202,7 @@
 			name = VenusToolsWatch;
 			productName = VenusToolsWatch;
 			productReference = A10000000000000000000013 /* VenusToolsWatch.app */;
-			productType = "com.apple.product-type.application.watchapp2";
+			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
 
