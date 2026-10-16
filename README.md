@@ -2,6 +2,13 @@
 
 这是一个以 SwiftUI 编写的 iPhone + Apple Watch 原型，用于预览 Ruleline 风格和多工具 Tab 布局。各 Tab 内容仅作演示，工具清单与交互可以继续调整。
 
+## 需求文档
+
+- [工具目录与组织约定](docs/tools/README.md)：各工具的需求入口，以及后续按工具组织代码的目录规则。
+- [任务提醒工具需求](docs/tools/reminders.md)：第一个完整工具的需求梳理，包含语音/文字录入、任务属性与完成状态、查找过滤、依赖图、系统通知、Apple Watch 与今日总结。
+
+需求文档描述后续目标；下方“原型包含”与“当前限制”描述现有代码，两者不代表相同的实现进度。
+
 ## 打开项目
 
 1. 在安装了 Xcode 的 Mac 上打开 VenusTools.xcodeproj。
