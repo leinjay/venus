@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Venus Tools · 原型预览</title>
+  <style>
+    :root{--canvas:#f5f2e9;--surface:#fffdf7;--pine:#315744;--pine-dark:#213d30;--sage:#e4ebe2;--amber:#d99542;--ink:#26352c;--muted:#7b8177;--line:#e8e3d8;--terra:#b76d52}
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;color:var(--ink);background:radial-gradient(ellipse at 16% 12%,rgba(217,149,66,.10),transparent 34%),radial-gradient(ellipse at 86% 90%,rgba(49,87,68,.10),transparent 32%),#eae9e2;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+    .stage{width:min(100%,620px);display:grid;justify-items:center;gap:18px}
+    .intro{text-align:center;max-width:500px}.intro .kicker{color:var(--pine);font-size:11px;font-weight:800;letter-spacing:.19em}.intro h1{margin:7px 0 5px;font:600 25px/1.15 Georgia,"Songti SC",serif}.intro p{margin:0;color:var(--muted);font-size:13px}
+    .device{width:min(390px,calc(100vw - 28px));height:min(812px,calc(100vh - 150px));min-height:600px;position:relative;display:flex;flex-direction:column;overflow:hidden;border:9px solid #28332c;border-radius:48px;background:var(--canvas);box-shadow:0 32px 80px rgba(34,47,38,.24),inset 0 0 0 1px rgba(255,255,255,.42)}
+    .status{height:43px;flex:0 0 43px;display:flex;align-items:center;justify-content:space-between;padding:0 24px 0 27px;font-size:12px;font-weight:700}.island{position:absolute;z-index:2;top:8px;left:50%;width:94px;height:25px;transform:translateX(-50%);border-radius:20px;background:#171d19}.status-icons{display:flex;gap:5px;align-items:center}
+    .screen{flex:1;overflow:auto;scrollbar-width:none;padding:16px 18px 20px}.screen::-webkit-scrollbar{display:none}
+    .tabbar{flex:0 0 auto;padding:9px 7px calc(12px + env(safe-area-inset-bottom));display:grid;grid-template-columns:repeat(4,1fr);background:rgba(255,253,247,.97);border-top:1px solid var(--line)}
+    .tab{border:0;background:transparent;color:#8c928a;display:grid;justify-items:center;gap:4px;font:inherit;font-size:10px;padding:3px 0;cursor:pointer}.tab .icon{font-size:18px;line-height:20px}.tab.active{color:var(--pine);font-weight:700}
+    .page{display:none;animation:enter .18s ease-out}.page.active{display:block}@keyframes enter{from{opacity:.55;transform:translateY(4px)}to{opacity:1;transform:none}}
+    .eyebrow{margin:3px 0 8px;color:var(--pine);font-size:10px;font-weight:800;letter-spacing:.19em}h2{margin:0;font:600 34px/1.1 Georgia,"Songti SC",serif;letter-spacing:-.025em}.subtitle{margin:9px 0 21px;color:var(--muted);font-size:14px;line-height:1.55}
+    .card{margin-bottom:16px;padding:17px;border:1px solid rgba(232,227,216,.9);border-radius:22px;background:var(--surface);box-shadow:0 5px 18px rgba(55,70,58,.035)}.card-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+    .pill{display:inline-flex;align-items:center;border-radius:20px;padding:6px 10px;color:var(--pine);background:var(--sage);font-size:11px;font-weight:700}.pill.amber{color:#9b6220;background:rgba(217,149,66,.13)}.muted{color:var(--muted)}
+    .ring-wrap{display:grid;place-items:center;padding:22px 0}.ring{width:204px;height:204px;border-radius:50%;display:grid;place-items:center;background:conic-gradient(var(--pine) 0 98%,var(--sage) 98%);position:relative}.ring::before{content:"";position:absolute;inset:12px;border-radius:50%;background:var(--surface)}.ring-center{z-index:1;text-align:center}.time{font:500 40px/1.1 ui-rounded,-apple-system,sans-serif;font-variant-numeric:tabular-nums}.ring-center small{display:block;margin-top:6px;color:var(--muted);font-size:12px}
+    .actions{display:flex;gap:10px}.primary,.round-button{border:0;cursor:pointer;font:inherit;font-weight:700}.primary{flex:1;border-radius:30px;padding:14px 16px;color:white;background:var(--pine);font-size:14px}.round-button{width:46px;height:46px;border-radius:50%;color:var(--pine);background:var(--sage);font-size:17px}
+    .two-col{display:grid;grid-template-columns:1fr 1fr;gap:12px}.mini{padding:14px;border-radius:19px;background:var(--surface);border:1px solid var(--line)}.mini .mini-icon{color:var(--pine);font-size:16px}.mini small{display:block;margin:12px 0 4px;color:var(--muted)}.mini strong{font-size:16px}
+    .note{display:flex;gap:10px;align-items:flex-start;padding:14px;border-radius:17px;color:var(--muted);background:rgba(217,149,66,.11);font-size:12px;line-height:1.5}.note b{color:var(--amber)}
+    .segmented{display:flex;gap:4px;padding:4px;border-radius:12px;background:var(--canvas)}.segmented button{flex:1;border:0;border-radius:9px;padding:9px 5px;color:var(--muted);background:transparent;font:inherit;font-size:12px;cursor:pointer}.segmented button.selected{color:var(--pine-dark);background:var(--surface);box-shadow:0 1px 5px rgba(28,45,34,.12);font-weight:700}
+    .field-label{display:block;margin:16px 0 7px;color:var(--muted);font-size:12px}input,select{min-width:0;width:100%;border:1px solid var(--line);border-radius:13px;padding:12px;outline:none;color:var(--ink);background:var(--canvas);font:inherit;font-size:15px}input:focus{border-color:var(--pine);box-shadow:0 0 0 3px rgba(49,87,68,.1)}
+    .convert-row{display:grid;grid-template-columns:1fr 24px 1fr;gap:9px;align-items:center;margin-top:18px;padding:13px;border-radius:17px;background:var(--canvas)}.convert-row .value{overflow:hidden;font:500 27px ui-rounded,-apple-system,sans-serif;white-space:nowrap;text-overflow:ellipsis}.convert-row .unit{color:var(--pine);font-size:13px;font-weight:700}.convert-row .arrow{color:var(--amber);text-align:center}
+    .progress-row{display:flex;align-items:center;gap:13px}.progress-ring{width:55px;height:55px;border:6px solid var(--sage);border-right-color:var(--pine);border-radius:50%;display:grid;place-items:center;color:var(--pine);font-size:14px}.progress-row strong{display:block;font-size:17px}.progress-row small{color:var(--muted)}
+    .row{display:flex;align-items:center;gap:11px;min-height:49px;border-top:1px solid var(--line)}.check{width:21px;height:21px;flex:0 0 21px;border:1.8px solid #c8cfc5;border-radius:50%;color:white;background:transparent;display:grid;place-items:center;cursor:pointer;font-size:12px}.check.done{border-color:var(--pine);background:var(--pine)}.row-title{flex:1;font-size:14px}.row-title.done{color:#9ca29a;text-decoration:line-through}.remove{border:0;color:#a1a59e;background:transparent;font-size:17px;cursor:pointer;padding:6px}
+    .add-row{display:flex;gap:9px}.add-row input{flex:1}.add-circle{width:43px;height:43px;flex:0 0 43px;border:0;border-radius:50%;color:white;background:var(--pine);font-size:20px;cursor:pointer}
+    .reminder{display:flex;align-items:center;gap:11px;padding:12px 0;border-top:1px solid var(--line)}.reminder-main{flex:1}.reminder-main strong{display:block;font-size:14px;font-weight:600}.reminder-main small{display:block;margin-top:4px;color:var(--muted);font-size:11px}
+    .sync-line{display:flex;gap:8px;align-items:center;margin-top:15px;color:var(--muted);font-size:11px}.sync-dot{width:7px;height:7px;border-radius:50%;background:#68a07c;box-shadow:0 0 0 3px rgba(104,160,124,.13)}
+    @media(max-width:520px){body{padding:10px}.stage{gap:12px}.intro h1{font-size:21px}.intro p{font-size:12px}.device{height:calc(100vh - 112px);min-height:570px;border-radius:38px}}
+  </style>
+</head>
+<body>
+  <main class="stage">
+    <header class="intro">
+      <div class="kicker">VENUS TOOLS · CONCEPT 01</div>
+      <h1>一点点秩序，一点点松弛。</h1>
+      <p>Ruleline 风格方向 · 象牙白、松绿与琥珀色</p>
+    </header>
+    <section class="device" aria-label="应用预览">
+      <div class="island"></div><div class="status"><span>9:41</span><span class="status-icons">● ◖ ▰</span></div>
+      <div class="screen">
+        <section class="page active" id="page-focus">
+          <div class="eyebrow">A QUIETER MOMENT</div><h2>专注</h2><p class="subtitle">给重要的事，留出一段安静时间。</p>
+          <div class="card"><div class="card-head"><span class="pill">专注时段</span><span style="color:var(--pine)">♧</span></div>
+            <div class="ring-wrap"><div class="ring" id="focus-ring"><div class="ring-center"><div class="time" id="focus-time">25:00</div><small id="focus-state">准备开始</small></div></div></div>
+            <div class="actions"><button class="primary" id="focus-start" onclick="toggleFocus()">▶ 开始专注</button><button class="round-button" onclick="resetFocus()" aria-label="重置">↺</button></div>
+          </div>
+          <div class="two-col"><div class="mini"><span class="mini-icon">☼</span><small>专注</small><strong>25 分钟</strong></div><div class="mini"><span class="mini-icon">♨</span><small>休息</small><strong>5 分钟</strong></div></div>
+          <div class="note" style="margin-top:15px"><b>✦</b><span>先选一件最重要的小事。专注结束时，记得起身活动一下。</span></div>
+        </section>
+        <section class="page" id="page-converter">
+          <div class="eyebrow">SMALL THINGS, MADE SIMPLE</div><h2>换算</h2><p class="subtitle">常用长度单位，轻轻一点就能换算。</p>
+          <div class="card"><span class="field-label" style="margin-top:0">转换方向</span>
+            <div class="segmented"><button id="km-btn" class="selected" onclick="setDirection(false)">千米 → 英里</button><button id="mi-btn" onclick="setDirection(true)">英里 → 千米</button></div>
+            <span class="field-label">输入数值</span><div class="convert-row"><div><div class="value"><input id="convert-input" value="2.5" inputmode="decimal" oninput="convertValue()" style="border:0;padding:0;background:transparent;font-size:27px"></div><span class="unit" id="input-unit">km</span></div><div class="arrow">→</div><div><div class="value" id="convert-output">1.55</div><span class="unit" id="output-unit">mi</span></div></div>
+            <span class="field-label">结果会随输入即时更新</span></div>
+          <div class="card" style="display:flex;gap:10px;align-items:center;color:var(--muted);font-size:13px"><span style="color:var(--pine)">ⓘ</span> 1 英里约等于 1.61 千米</div>
+        </section>
+        <section class="page" id="page-checklist">
+          <div class="eyebrow">A LITTLE ORDER</div><h2>清单</h2><p class="subtitle">把脑海里的小事，放到一个安心的地方。</p>
+          <div class="card"><div class="progress-row"><div class="progress-ring">✓</div><div><small>今日进度</small><strong><span id="done-count">1</span> / <span id="task-count">3</span> 项已完成</strong></div><span class="pill amber" style="margin-left:auto">慢慢来</span></div></div>
+          <div class="card"><div class="add-row"><input id="task-input" placeholder="添加一件小事…" onkeydown="if(event.key==='Enter')addTask()"><button class="add-circle" onclick="addTask()">＋</button></div>
+            <div id="task-list" style="margin-top:12px">
+              <div class="row"><button class="check" onclick="toggleCheck(this)"> </button><span class="row-title">整理今天的待办</span><button class="remove" onclick="removeRow(this)">×</button></div>
+              <div class="row"><button class="check" onclick="toggleCheck(this)"> </button><span class="row-title">读几页书</span><button class="remove" onclick="removeRow(this)">×</button></div>
+              <div class="row"><button class="check done" onclick="toggleCheck(this)">✓</button><span class="row-title done">给自己倒杯水</span><button class="remove" onclick="removeRow(this)">×</button></div>
+            </div>
+          </div><div class="note"><b>✦</b><span>完成一项就勾选它，清单会自动保存在本机。</span></div>
+        </section>
+        <section class="page" id="page-reminders">
+          <div class="eyebrow">GENTLE NUDGES</div><h2>提醒</h2><p class="subtitle">记下重要的小事，也能在手腕上看见。</p>
+          <div class="card"><div class="card-head"><div><small class="muted">今天的准备度</small><div style="font:600 20px Georgia,serif;margin-top:5px"><span id="reminder-done">0</span> / <span id="reminder-count">3</span> 项已完成</div></div><div class="progress-ring" id="reminder-progress">0%</div></div><div class="sync-line"><span class="sync-dot"></span><span>Apple Watch 同步已就绪</span></div></div>
+          <div class="card"><strong style="font:600 18px Georgia,serif">新提醒</strong><span class="field-label">提醒内容</span><div class="add-row"><input id="reminder-input" placeholder="例如：散步、喝水…"><button class="add-circle" onclick="addReminder()">＋</button></div><span class="field-label">提醒时间</span><input id="reminder-time" type="time" value="10:30"></div>
+          <div class="card"><div class="card-head" style="margin-bottom:8px"><strong style="font:600 19px Georgia,serif">接下来</strong><span class="pill" id="reminder-badge">3 条</span></div>
+            <div id="reminder-list">
+              <div class="reminder"><button class="check" onclick="toggleReminder(this)"> </button><div class="reminder-main"><strong>喝水休息</strong><small>上午 10:30</small></div><button class="remove" onclick="removeReminder(this)">×</button></div>
+              <div class="reminder"><button class="check" onclick="toggleReminder(this)"> </button><div class="reminder-main"><strong>补充维生素</strong><small>下午 12:30</small></div><button class="remove" onclick="removeReminder(this)">×</button></div>
+              <div class="reminder"><button class="check" onclick="toggleReminder(this)"> </button><div class="reminder-main"><strong>给植物浇水</strong><small>明天 上午 9:00</small></div><button class="remove" onclick="removeReminder(this)">×</button></div>
+            </div>
+          </div><div class="note"><b>⌚</b><span>手表与手机配对后，提醒会通过 Apple Watch 同步共享。</span></div>
+        </section>
+      </div>
+      <nav class="tabbar" aria-label="工具导航">
+        <button class="tab active" onclick="showPage('focus',this)"><span class="icon">◷</span><span>专注</span></button>
+        <button class="tab" onclick="showPage('converter',this)"><span class="icon">⇄</span><span>换算</span></button>
+        <button class="tab" onclick="showPage('checklist',this)"><span class="icon">☷</span><span>清单</span></button>
+        <button class="tab" onclick="showPage('reminders',this)"><span class="icon">♧</span><span>提醒</span></button>
+      </nav>
+    </section>
+    <footer style="color:#7b8177;font-size:11px;text-align:center">交互式视觉草图 · 原生版本见 VenusTools.xcodeproj</footer>
+  </main>
+  <script>
+    let seconds = 25 * 60, running = false, focusTimer = null, reverse = false;
+    function showPage(name, button) {
+      document.querySelectorAll(".page").forEach(page => page.classList.toggle("active", page.id === "page-" + name));
+      document.querySelectorAll(".tab").forEach(tab => tab.classList.toggle("active", tab === button));
+      document.querySelector(".screen").scrollTop = 0;
+    }
+    function paintFocus() {
+      const mm = String(Math.floor(seconds / 60)).padStart(2, "0"), ss = String(seconds % 60).padStart(2, "0");
+      document.getElementById("focus-time").textContent = mm + ":" + ss;
+      document.getElementById("focus-state").textContent = running ? "正在专注" : "准备开始";
+      document.getElementById("focus-start").textContent = running ? "Ⅱ 暂停" : "▶ 开始专注";
+      const progress = Math.max(0, seconds / (25 * 60));
+      document.getElementById("focus-ring").style.background = "conic-gradient(var(--pine) " + (progress * 100) + "%, var(--sage) 0)";
+    }
+    function toggleFocus() {
+      running = !running;
+      if (running) focusTimer = setInterval(() => { seconds = Math.max(0, seconds - 1); if (!seconds) { clearInterval(focusTimer); running = false; } paintFocus(); }, 1000);
+      else clearInterval(focusTimer);
+      paintFocus();
+    }
+    function resetFocus() { clearInterval(focusTimer); running = false; seconds = 25 * 60; paintFocus(); }
+    function setDirection(value) {
+      reverse = value;
+      document.getElementById("km-btn").classList.toggle("selected", !value);
+      document.getElementById("mi-btn").classList.toggle("selected", value);
+      document.getElementById("input-unit").textContent = value ? "mi" : "km";
+      document.getElementById("output-unit").textContent = value ? "km" : "mi";
+      convertValue();
+    }
+    function convertValue() {
+      const value = Number(document.getElementById("convert-input").value.replace(",", ".")) || 0;
+      document.getElementById("convert-output").textContent = (reverse ? value / 0.621371 : value * 0.621371).toFixed(2);
+    }
+    function refreshTasks() {
+      const rows = [...document.querySelectorAll("#task-list .row")];
+      document.getElementById("task-count").textContent = rows.length;
+      document.getElementById("done-count").textContent = rows.filter(row => row.querySelector(".check").classList.contains("done")).length;
+    }
+    function toggleCheck(button) {
+      const done = button.classList.toggle("done");
+      button.textContent = done ? "✓" : " ";
+      button.nextElementSibling.classList.toggle("done", done);
+      refreshTasks();
+    }
+    function addTask() {
+      const input = document.getElementById("task-input"), value = input.value.trim();
+      if (!value) return;
+      const row = document.createElement("div"); row.className = "row";
+      row.innerHTML = '<button class="check" onclick="toggleCheck(this)"> </button><span class="row-title"></span><button class="remove" onclick="removeRow(this)">×</button>';
+      row.querySelector(".row-title").textContent = value;
+      document.getElementById("task-list").prepend(row); input.value = ""; refreshTasks();
+    }
+    function removeRow(button) { button.closest(".row").remove(); refreshTasks(); }
+    function refreshReminders() {
+      const rows = [...document.querySelectorAll("#reminder-list .reminder")];
+      const done = rows.filter(row => row.querySelector(".check").classList.contains("done")).length;
+      document.getElementById("reminder-count").textContent = rows.length;
+      document.getElementById("reminder-done").textContent = done;
+      document.getElementById("reminder-progress").textContent = rows.length ? Math.round(done / rows.length * 100) + "%" : "—";
+      document.getElementById("reminder-badge").textContent = rows.length + " 条";
+    }
+    function addReminder() {
+      const input = document.getElementById("reminder-input"), value = input.value.trim();
+      if (!value) return;
+      const time = document.getElementById("reminder-time").value || "09:00", parts = time.split(":");
+      const hour = Number(parts[0]), minute = parts[1];
+      const label = hour < 12 ? "上午 " + hour + ":" + minute : "下午 " + (hour - 12 || 12) + ":" + minute;
+      const row = document.createElement("div"); row.className = "reminder";
+      row.innerHTML = '<button class="check" onclick="toggleReminder(this)"> </button><div class="reminder-main"><strong></strong><small></small></div><button class="remove" onclick="removeReminder(this)">×</button>';
+      row.querySelector("strong").textContent = value; row.querySelector("small").textContent = label;
+      document.getElementById("reminder-list").prepend(row); input.value = ""; refreshReminders();
+    }
+    function toggleReminder(button) {
+      const done = button.classList.toggle("done"); button.textContent = done ? "✓" : " "; refreshReminders();
+    }
+    function removeReminder(button) { button.closest(".reminder").remove(); refreshReminders(); }
+  </script>
+</body>
+</html>

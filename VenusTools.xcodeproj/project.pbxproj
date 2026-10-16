@@ -1,0 +1,413 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 60;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		B10000000000000000000001 /* VenusToolsApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000001 /* VenusToolsApp.swift */; };
+		B10000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000002 /* ContentView.swift */; };
+		B10000000000000000000003 /* ToolStores.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000003 /* ToolStores.swift */; };
+		B10000000000000000000004 /* ReminderStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000004 /* ReminderStore.swift */; };
+		B10000000000000000000005 /* ToolViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000005 /* ToolViews.swift */; };
+		B10000000000000000000006 /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000009 /* AppTheme.swift */; };
+		B10000000000000000000007 /* ReminderItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000010 /* ReminderItem.swift */; };
+		B10000000000000000000008 /* VenusToolsWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000006 /* VenusToolsWatchApp.swift */; };
+		B10000000000000000000009 /* WatchReminderStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000007 /* WatchReminderStore.swift */; };
+		B10000000000000000000010 /* WatchContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000008 /* WatchContentView.swift */; };
+		B10000000000000000000011 /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000009 /* AppTheme.swift */; };
+		B10000000000000000000012 /* ReminderItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000010 /* ReminderItem.swift */; };
+		B10000000000000000000013 /* WatchConnectivity.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A10000000000000000000011 /* WatchConnectivity.framework */; };
+		B10000000000000000000014 /* WatchConnectivity.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A10000000000000000000011 /* WatchConnectivity.framework */; };
+		B10000000000000000000015 /* VenusToolsWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = A10000000000000000000013 /* VenusToolsWatch.app */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A40000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A00000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A30000000000000000000011;
+			remoteInfo = VenusToolsWatch;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		E10000000000000000000004 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 16;
+			files = (
+				B10000000000000000000015 /* VenusToolsWatch.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		A10000000000000000000001 /* VenusToolsApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VenusToolsApp.swift; sourceTree = "<group>"; };
+		A10000000000000000000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		A10000000000000000000003 /* ToolStores.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolStores.swift; sourceTree = "<group>"; };
+		A10000000000000000000004 /* ReminderStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReminderStore.swift; sourceTree = "<group>"; };
+		A10000000000000000000005 /* ToolViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolViews.swift; sourceTree = "<group>"; };
+		A10000000000000000000006 /* VenusToolsWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VenusToolsWatchApp.swift; sourceTree = "<group>"; };
+		A10000000000000000000007 /* WatchReminderStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchReminderStore.swift; sourceTree = "<group>"; };
+		A10000000000000000000008 /* WatchContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchContentView.swift; sourceTree = "<group>"; };
+		A10000000000000000000009 /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
+		A10000000000000000000010 /* ReminderItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReminderItem.swift; sourceTree = "<group>"; };
+		A10000000000000000000011 /* WatchConnectivity.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WatchConnectivity.framework; path = System/Library/Frameworks/WatchConnectivity.framework; sourceTree = SDKROOT; };
+		A10000000000000000000012 /* VenusTools.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VenusTools.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000013 /* VenusToolsWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VenusToolsWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		E10000000000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (B10000000000000000000013 /* WatchConnectivity.framework in Frameworks */, );
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E10000000000000000000006 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (B10000000000000000000014 /* WatchConnectivity.framework in Frameworks */, );
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A20000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000003 /* iOS */,
+				A20000000000000000000004 /* Watch */,
+				A20000000000000000000005 /* Shared */,
+				A20000000000000000000002 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A20000000000000000000002 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000012 /* VenusTools.app */,
+				A10000000000000000000013 /* VenusToolsWatch.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A20000000000000000000003 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000007 /* App */,
+				A20000000000000000000008 /* Stores */,
+				A20000000000000000000009 /* Views */,
+			);
+			path = VenusTools/iOS;
+			sourceTree = "<group>";
+		};
+		A20000000000000000000004 /* Watch */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000010 /* App */,
+				A20000000000000000000011 /* Stores */,
+				A20000000000000000000012 /* Views */,
+			);
+			path = VenusTools/Watch;
+			sourceTree = "<group>";
+		};
+		A20000000000000000000005 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000009 /* AppTheme.swift */,
+				A10000000000000000000010 /* ReminderItem.swift */,
+			);
+			path = VenusTools/Shared;
+			sourceTree = "<group>";
+		};
+		A20000000000000000000007 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000001 /* VenusToolsApp.swift */,
+				A10000000000000000000002 /* ContentView.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		A20000000000000000000008 /* Stores */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000000000003 /* ToolStores.swift */,
+				A10000000000000000000004 /* ReminderStore.swift */,
+			);
+			path = Stores;
+			sourceTree = "<group>";
+		};
+		A20000000000000000000009 /* Views */ = {
+			isa = PBXGroup;
+			children = (A10000000000000000000005 /* ToolViews.swift */, );
+			path = Views;
+			sourceTree = "<group>";
+		};
+		A20000000000000000000010 /* App */ = {
+			isa = PBXGroup;
+			children = (A10000000000000000000006 /* VenusToolsWatchApp.swift */, );
+			path = App;
+			sourceTree = "<group>";
+		};
+		A20000000000000000000011 /* Stores */ = {
+			isa = PBXGroup;
+			children = (A10000000000000000000007 /* WatchReminderStore.swift */, );
+			path = Stores;
+			sourceTree = "<group>";
+		};
+		A20000000000000000000012 /* Views */ = {
+			isa = PBXGroup;
+			children = (A10000000000000000000008 /* WatchContentView.swift */, );
+			path = Views;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A30000000000000000000010 /* VenusTools */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D10000000000000000000002 /* Build configuration list for PBXNativeTarget "VenusTools" */;
+			buildPhases = (
+				E10000000000000000000001 /* Sources */,
+				E10000000000000000000002 /* Frameworks */,
+				E10000000000000000000003 /* Resources */,
+				E10000000000000000000004 /* Embed Watch Content */,
+			);
+			buildRules = ();
+			dependencies = (A50000000000000000000001 /* PBXTargetDependency */, );
+			name = VenusTools;
+			productName = VenusTools;
+			productReference = A10000000000000000000012 /* VenusTools.app */;
+			productType = "com.apple.product-type.application";
+		};
+		A30000000000000000000011 /* VenusToolsWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D10000000000000000000003 /* Build configuration list for PBXNativeTarget "VenusToolsWatch" */;
+			buildPhases = (
+				E10000000000000000000005 /* Sources */,
+				E10000000000000000000006 /* Frameworks */,
+				E10000000000000000000007 /* Resources */,
+			);
+			buildRules = ();
+			dependencies = ();
+			name = VenusToolsWatch;
+			productName = VenusToolsWatch;
+			productReference = A10000000000000000000013 /* VenusToolsWatch.app */;
+			productType = "com.apple.product-type.application.watchapp2";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A00000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					A30000000000000000000010 = {CreatedOnToolsVersion = 16.0; };
+					A30000000000000000000011 = {CreatedOnToolsVersion = 16.0; };
+				};
+			};
+			buildConfigurationList = D10000000000000000000001 /* Build configuration list for PBXProject */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (en, Base, "zh-Hans", );
+			mainGroup = A20000000000000000000001;
+			productRefGroup = A20000000000000000000002 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A30000000000000000000010 /* VenusTools */,
+				A30000000000000000000011 /* VenusToolsWatch */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		E10000000000000000000003 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		E10000000000000000000007 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		E10000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B10000000000000000000001 /* VenusToolsApp.swift in Sources */,
+				B10000000000000000000002 /* ContentView.swift in Sources */,
+				B10000000000000000000003 /* ToolStores.swift in Sources */,
+				B10000000000000000000004 /* ReminderStore.swift in Sources */,
+				B10000000000000000000005 /* ToolViews.swift in Sources */,
+				B10000000000000000000006 /* AppTheme.swift in Sources */,
+				B10000000000000000000007 /* ReminderItem.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E10000000000000000000005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B10000000000000000000008 /* VenusToolsWatchApp.swift in Sources */,
+				B10000000000000000000009 /* WatchReminderStore.swift in Sources */,
+				B10000000000000000000010 /* WatchContentView.swift in Sources */,
+				B10000000000000000000011 /* AppTheme.swift in Sources */,
+				B10000000000000000000012 /* ReminderItem.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A50000000000000000000001 /* PBXTargetDependency */ = {isa = PBXTargetDependency; target = A30000000000000000000011 /* VenusToolsWatch */; targetProxy = A40000000000000000000001 /* PBXContainerItemProxy */; };
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		C10000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = ("DEBUG=1", "$(inherited)", );
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		C10000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		C10000000000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", );
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.venus.VenusTools;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		C10000000000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", );
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.venus.VenusTools;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		C10000000000000000000005 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.venus.VenusTools;
+				INFOPLIST_KEY_WKWatchKitApp = YES;
+				SDKROOT = watchos;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", );
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.venus.VenusTools.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Debug;
+		};
+		C10000000000000000000006 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.venus.VenusTools;
+				INFOPLIST_KEY_WKWatchKitApp = YES;
+				SDKROOT = watchos;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", );
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.venus.VenusTools.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		D10000000000000000000001 /* Build configuration list for PBXProject */ = {isa = XCConfigurationList; buildConfigurations = (C10000000000000000000001 /* Debug */, C10000000000000000000002 /* Release */, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		D10000000000000000000002 /* Build configuration list for PBXNativeTarget "VenusTools" */ = {isa = XCConfigurationList; buildConfigurations = (C10000000000000000000003 /* Debug */, C10000000000000000000004 /* Release */, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		D10000000000000000000003 /* Build configuration list for PBXNativeTarget "VenusToolsWatch" */ = {isa = XCConfigurationList; buildConfigurations = (C10000000000000000000005 /* Debug */, C10000000000000000000006 /* Release */, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+	};
+	rootObject = A00000000000000000000001 /* Project object */;
+}
