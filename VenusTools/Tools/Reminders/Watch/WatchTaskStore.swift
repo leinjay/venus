@@ -19,6 +19,7 @@ final class WatchReminderStore: NSObject, ObservableObject, WCSessionDelegate {
     private let session = WCSession.default
     private let key = "venus.tools.watch.tasks.v2"
     private var timer: AnyCancellable?
+    private var waitingForSnapshot = false
     var reminders: [ReminderItem] {
         cache.snapshot.tasks.map { item in
             var task = item
@@ -71,11 +72,18 @@ final class WatchReminderStore: NSObject, ObservableObject, WCSessionDelegate {
     }
     private func receive(_ context: [String: Any]) {
         if let data = context["taskSnapshot"] as? Data, let snapshot = try? JSONDecoder().decode(TaskSnapshot.self, from: data), snapshot.revision >= cache.snapshot.revision {
-            cache.snapshot = snapshot
+            cache.snapshot = TaskRules.mergeSnapshot(snapshot, into: cache.snapshot)
+            waitingForSnapshot = false
             for key in Array(cache.pending.keys) {
                 guard let pending = cache.pending[key] else { continue }
-                if !snapshot.tasks.contains(where: { $0.id == pending.operation.taskID && $0.lifecycle == pending.operation.lifecycle }) { cache.pending.removeValue(forKey: key) }
+                if !cache.snapshot.tasks.contains(where: { $0.id == pending.operation.taskID && $0.lifecycle == pending.operation.lifecycle }) { cache.pending.removeValue(forKey: key) }
             }
+        }
+        if let revision = context["snapshotPendingRevision"] as? Int, revision > cache.snapshot.revision { waitingForSnapshot = true }
+        if let data = context["completionTask"] as? Data, let task = try? JSONDecoder().decode(ReminderItem.self, from: data) {
+            if let index = cache.snapshot.tasks.firstIndex(where: { $0.id == task.id }) {
+                if cache.snapshot.tasks[index].revision <= task.revision { cache.snapshot.tasks[index] = task }
+            } else if task.revision >= cache.snapshot.revision { cache.snapshot.tasks.append(task) }
         }
         if let data = context["completionAck"] as? Data, let ack = try? JSONDecoder().decode(CompletionAck.self, from: data),
            let entry = cache.pending.first(where: { $0.value.operation.id == ack.operationID }) {
@@ -87,7 +95,10 @@ final class WatchReminderStore: NSObject, ObservableObject, WCSessionDelegate {
             } else if !ack.accepted { syncMessage = "手机任务已更新，已采用手机状态" }
         }
         persist()
-        if cache.pending.isEmpty { if syncMessage != "手机任务已更新，已采用手机状态" { syncMessage = "已与 iPhone 同步" } }
+        if cache.pending.isEmpty {
+            if waitingForSnapshot { syncMessage = "任务列表传输中" }
+            else if syncMessage != "手机任务已更新，已采用手机状态" { syncMessage = "已与 iPhone 同步" }
+        }
         else { syncMessage = "待同步 · 手机提醒可能尚未取消"; sendPending() }
     }
     private func activate() {
@@ -99,4 +110,8 @@ final class WatchReminderStore: NSObject, ObservableObject, WCSessionDelegate {
     func sessionReachabilityDidChange(_ session: WCSession) { DispatchQueue.main.async { self.activate() } }
     func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) { DispatchQueue.main.async { self.receive(applicationContext) } }
     func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) { DispatchQueue.main.async { self.receive(userInfo) } }
+    func session(_ session: WCSession, didReceive file: WCSessionFile) {
+        guard file.metadata?["kind"] as? String == "taskSnapshot", let data = try? Data(contentsOf: file.fileURL) else { return }
+        DispatchQueue.main.async { self.receive(["taskSnapshot": data]) }
+    }
 }

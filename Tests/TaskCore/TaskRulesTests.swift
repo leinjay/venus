@@ -88,4 +88,14 @@ final class TaskRulesTests: XCTestCase {
         XCTAssertGreaterThan(TaskRules.relevance(direct, query: "apples"), TaskRules.relevance(body, query: "apples"))
         XCTAssertGreaterThan(TaskRules.relevance(body, query: "apples"), TaskRules.relevance(fuzzy, query: "apples"))
     }
+    func testBackgroundSnapshotCannotOverwriteNewerLiveAcknowledgement() {
+        var task = ReminderItem(); task.title = "较新确认"; task.revision = 7; task.isDone = true
+        let current = TaskSnapshot(revision: 4, tasks: [task])
+        var stale = task; stale.revision = 5; stale.isDone = false
+        let merged = TaskRules.mergeSnapshot(TaskSnapshot(revision: 5, tasks: [stale]), into: current)
+        XCTAssertTrue(merged.tasks[0].isDone)
+        XCTAssertEqual(TaskRules.mergeSnapshot(TaskSnapshot(revision: 5, tasks: []), into: current).tasks.map(\.id), [task.id])
+        XCTAssertTrue(TaskRules.mergeSnapshot(TaskSnapshot(revision: 8, tasks: []), into: current).tasks.isEmpty)
+        XCTAssertEqual(TaskRules.mergeSnapshot(TaskSnapshot(revision: 3, tasks: []), into: current).revision, 4)
+    }
 }

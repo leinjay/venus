@@ -66,6 +66,19 @@ enum TaskRules {
             && ack.completionRevision != nil && task.deletedAt == nil
     }
 
+    static func mergeSnapshot(_ incoming: TaskSnapshot, into current: TaskSnapshot) -> TaskSnapshot {
+        guard incoming.revision >= current.revision else { return current }
+        let latest = Dictionary(uniqueKeysWithValues: current.tasks.map { ($0.id, $0) })
+        var result = incoming.tasks.map { task in
+            if let newer = latest[task.id], newer.revision > task.revision { return newer }
+            return task
+        }
+        let included = Set(result.map(\.id))
+        // A live acknowledgement can precede an older, slower background file.
+        result += current.tasks.filter { !included.contains($0.id) && $0.revision > incoming.revision }
+        return TaskSnapshot(revision: incoming.revision, tasks: result)
+    }
+
     static func dependencyIDs(for id: UUID, tasks: [ReminderItem]) -> Set<UUID> {
         let active = tasks.filter { $0.deletedAt == nil }
         let byID = Dictionary(uniqueKeysWithValues: active.map { ($0.id, $0) })

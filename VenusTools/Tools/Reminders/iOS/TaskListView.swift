@@ -98,7 +98,7 @@ struct RemindersView: View {
                 ToolbarItem(placement: .topBarTrailing) { Button { path.append(.new) } label: { Image(systemName: "plus") }.accessibilityLabel("新建任务") }
                 ToolbarItem(placement: .topBarTrailing) { Menu {
                     Button("回收站（\(store.deleted.count)）") { recycle = true }
-                    Button("重试通知与同步") { store.refreshNotifications(requestPermission: true) }
+                    Button("重试通知与同步") { store.retryDelivery() }
                     Toggle("通知隐藏任务标题", isOn: $hideTitle)
                 } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel("任务选项") }
             }

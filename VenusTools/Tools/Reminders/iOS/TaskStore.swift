@@ -178,6 +178,8 @@ final class ReminderStore: NSObject, ObservableObject, WCSessionDelegate, UNUser
         }
     }
 
+    func retryDelivery() { publishSnapshot(); refreshNotifications(requestPermission: true) }
+
     private func snapshot() -> TaskSnapshot {
         let start = Calendar.current.startOfDay(for: Date())
         let cutoff = Calendar.current.date(byAdding: .day, value: -6, to: start)!
@@ -190,7 +192,22 @@ final class ReminderStore: NSObject, ObservableObject, WCSessionDelegate, UNUser
     }
     private func snapshotContext() -> [String: Any] {
         guard let data = try? JSONEncoder().encode(snapshot()) else { return [:] }
+        if data.count > 40_000 {
+            queueSnapshotFile(data)
+            return ["snapshotPendingRevision": database.revision]
+        }
         return ["taskSnapshot": data]
+    }
+    private func queueSnapshotFile(_ data: Data) {
+        guard session.activationState == .activated else { return }
+        let transfers = session.outstandingFileTransfers.filter { $0.file.metadata?["kind"] as? String == "taskSnapshot" }
+        if transfers.contains(where: { $0.file.metadata?["revision"] as? Int == database.revision }) { return }
+        for transfer in transfers { transfer.cancel() }
+        do {
+            let url = directory.appendingPathComponent("watch-snapshot-\(UUID()).json")
+            try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            session.transferFile(url, metadata: ["kind": "taskSnapshot", "revision": database.revision])
+        } catch { syncMessage = "大列表同步未开始，请重试：\(error.localizedDescription)" }
     }
     private func publishSnapshot() {
         guard WCSession.isSupported(), session.activationState == .activated else { return }
@@ -222,6 +239,9 @@ final class ReminderStore: NSObject, ObservableObject, WCSessionDelegate, UNUser
             do { try commit(next) } catch { errorMessage = error.localizedDescription; return snapshotContext() }
         }
         var reply = snapshotContext(); reply["completionAck"] = try? JSONEncoder().encode(ack)
+        if let task = snapshot().tasks.first(where: { $0.id == operation.taskID }) {
+            reply["completionTask"] = try? JSONEncoder().encode(task)
+        }
         return reply
     }
     func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
@@ -234,6 +254,11 @@ final class ReminderStore: NSObject, ObservableObject, WCSessionDelegate, UNUser
         DispatchQueue.main.async { let reply = self.receive(userInfo); session.transferUserInfo(reply) }
     }
     func sessionReachabilityDidChange(_ session: WCSession) { DispatchQueue.main.async { self.publishSnapshot() } }
+    func session(_ session: WCSession, didFinish fileTransfer: WCSessionFileTransfer, error: Error?) {
+        guard fileTransfer.file.metadata?["kind"] as? String == "taskSnapshot" else { return }
+        try? FileManager.default.removeItem(at: fileTransfer.file.fileURL)
+        if error != nil { DispatchQueue.main.async { self.syncMessage = "大列表同步待重试" } }
+    }
     func sessionDidBecomeInactive(_ session: WCSession) {}
     func sessionDidDeactivate(_ session: WCSession) { session.activate() }
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
