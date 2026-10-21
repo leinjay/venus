@@ -17,21 +17,21 @@
 		B10000000000000000000013 /* WatchConnectivity.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A10000000000000000000011 /* WatchConnectivity.framework */; };
 		B10000000000000000000014 /* WatchConnectivity.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A10000000000000000000011 /* WatchConnectivity.framework */; };
 		B10000000000000000000015 /* VenusToolsWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = A10000000000000000000013 /* VenusToolsWatch.app */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		B20000000000000000000100 /* TaskModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001; };
-		B20000000000000000000101 /* TaskModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001; };
-		B20000000000000000000200 /* TaskRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002; };
-		B20000000000000000000201 /* TaskRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002; };
-		B20000000000000000000300 /* TaskStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003; };
-		B20000000000000000000400 /* TaskNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004; };
-		B20000000000000000000500 /* TaskAI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005; };
-		B20000000000000000000600 /* TaskMedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006; };
-		B20000000000000000000700 /* TaskEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007; };
-		B20000000000000000000800 /* TaskListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008; };
-		B20000000000000000000900 /* TaskDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009; };
-		B20000000000000000000A00 /* TaskTodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000A; };
-		B20000000000000000000B00 /* WatchTaskStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000B; };
-		B20000000000000000000C00 /* WatchTaskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000C; };
-		B20000000000000000000D00 /* LocalQwenService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000D; };
+		B20000000000000000000100 /* TaskModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A80000000000000000000001; };
+		B20000000000000000000101 /* TaskModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A80000000000000000000001; };
+		B20000000000000000000200 /* TaskRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = A80000000000000000000002; };
+		B20000000000000000000201 /* TaskRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = A80000000000000000000002; };
+		B20000000000000000000300 /* TaskStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A80000000000000000000003; };
+		B20000000000000000000400 /* TaskNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = A80000000000000000000004; };
+		B20000000000000000000500 /* TaskAI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A80000000000000000000005; };
+		B20000000000000000000600 /* TaskMedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = A80000000000000000000006; };
+		B20000000000000000000700 /* TaskEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A80000000000000000000007; };
+		B20000000000000000000800 /* TaskListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A80000000000000000000008; };
+		B20000000000000000000900 /* TaskDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A80000000000000000000009; };
+		B20000000000000000000A00 /* TaskTodayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8000000000000000000000A; };
+		B20000000000000000000B00 /* WatchTaskStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8000000000000000000000B; };
+		B20000000000000000000C00 /* WatchTaskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8000000000000000000000C; };
+		B20000000000000000000D00 /* LocalQwenService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8000000000000000000000D; };
 		B90000000000000000000001 = {isa = PBXBuildFile; productRef = A90000000000000000000002; };
 		B90000000000000000000002 = {isa = PBXBuildFile; productRef = A90000000000000000000003; };
 /* End PBXBuildFile section */
@@ -70,19 +70,19 @@
 		A10000000000000000000011 /* WatchConnectivity.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WatchConnectivity.framework; path = System/Library/Frameworks/WatchConnectivity.framework; sourceTree = SDKROOT; };
 		A10000000000000000000012 /* VenusTools.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VenusTools.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000013 /* VenusToolsWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VenusToolsWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		A20000000000000000000001 /* TaskModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Shared/TaskModel.swift"; sourceTree = "<group>"; };
-		A20000000000000000000002 /* TaskRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Shared/TaskRules.swift"; sourceTree = "<group>"; };
-		A20000000000000000000003 /* TaskStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOS/TaskStore.swift"; sourceTree = "<group>"; };
-		A20000000000000000000004 /* TaskNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOS/TaskNotifications.swift"; sourceTree = "<group>"; };
-		A20000000000000000000005 /* TaskAI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOS/TaskAI.swift"; sourceTree = "<group>"; };
-		A20000000000000000000006 /* TaskMedia.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOS/TaskMedia.swift"; sourceTree = "<group>"; };
-		A20000000000000000000007 /* TaskEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOS/TaskEditorView.swift"; sourceTree = "<group>"; };
-		A20000000000000000000008 /* TaskListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOS/TaskListView.swift"; sourceTree = "<group>"; };
-		A20000000000000000000009 /* TaskDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOS/TaskDetailView.swift"; sourceTree = "<group>"; };
-		A2000000000000000000000A /* TaskTodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOS/TaskTodayView.swift"; sourceTree = "<group>"; };
-		A2000000000000000000000B /* WatchTaskStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Watch/WatchTaskStore.swift"; sourceTree = "<group>"; };
-		A2000000000000000000000C /* WatchTaskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Watch/WatchTaskView.swift"; sourceTree = "<group>"; };
-		A2000000000000000000000D /* LocalQwenService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "../../iOS/AI/LocalQwenService.swift"; sourceTree = "<group>"; };
+		A80000000000000000000001 /* TaskModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Shared/TaskModel.swift"; sourceTree = "<group>"; };
+		A80000000000000000000002 /* TaskRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Shared/TaskRules.swift"; sourceTree = "<group>"; };
+		A80000000000000000000003 /* TaskStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOS/TaskStore.swift"; sourceTree = "<group>"; };
+		A80000000000000000000004 /* TaskNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOS/TaskNotifications.swift"; sourceTree = "<group>"; };
+		A80000000000000000000005 /* TaskAI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOS/TaskAI.swift"; sourceTree = "<group>"; };
+		A80000000000000000000006 /* TaskMedia.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOS/TaskMedia.swift"; sourceTree = "<group>"; };
+		A80000000000000000000007 /* TaskEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOS/TaskEditorView.swift"; sourceTree = "<group>"; };
+		A80000000000000000000008 /* TaskListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOS/TaskListView.swift"; sourceTree = "<group>"; };
+		A80000000000000000000009 /* TaskDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOS/TaskDetailView.swift"; sourceTree = "<group>"; };
+		A8000000000000000000000A /* TaskTodayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOS/TaskTodayView.swift"; sourceTree = "<group>"; };
+		A8000000000000000000000B /* WatchTaskStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Watch/WatchTaskStore.swift"; sourceTree = "<group>"; };
+		A8000000000000000000000C /* WatchTaskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Watch/WatchTaskView.swift"; sourceTree = "<group>"; };
+		A8000000000000000000000D /* LocalQwenService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "../../iOS/AI/LocalQwenService.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -191,19 +191,19 @@
 		A20000000000000000000020 /* Reminders */ = {
 			isa = PBXGroup;
 			children = (
-				A20000000000000000000001 /* TaskModel.swift */,
-				A20000000000000000000002 /* TaskRules.swift */,
-				A20000000000000000000003 /* TaskStore.swift */,
-				A20000000000000000000004 /* TaskNotifications.swift */,
-				A20000000000000000000005 /* TaskAI.swift */,
-				A20000000000000000000006 /* TaskMedia.swift */,
-				A20000000000000000000007 /* TaskEditorView.swift */,
-				A20000000000000000000008 /* TaskListView.swift */,
-				A20000000000000000000009 /* TaskDetailView.swift */,
-				A2000000000000000000000A /* TaskTodayView.swift */,
-				A2000000000000000000000B /* WatchTaskStore.swift */,
-				A2000000000000000000000C /* WatchTaskView.swift */,
-				A2000000000000000000000D /* LocalQwenService.swift */,
+				A80000000000000000000001 /* TaskModel.swift */,
+				A80000000000000000000002 /* TaskRules.swift */,
+				A80000000000000000000003 /* TaskStore.swift */,
+				A80000000000000000000004 /* TaskNotifications.swift */,
+				A80000000000000000000005 /* TaskAI.swift */,
+				A80000000000000000000006 /* TaskMedia.swift */,
+				A80000000000000000000007 /* TaskEditorView.swift */,
+				A80000000000000000000008 /* TaskListView.swift */,
+				A80000000000000000000009 /* TaskDetailView.swift */,
+				A8000000000000000000000A /* TaskTodayView.swift */,
+				A8000000000000000000000B /* WatchTaskStore.swift */,
+				A8000000000000000000000C /* WatchTaskView.swift */,
+				A8000000000000000000000D /* LocalQwenService.swift */,
 			);
 			path = VenusTools/Tools/Reminders;
 			sourceTree = "<group>";
