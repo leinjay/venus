@@ -41,6 +41,14 @@ final class TaskRulesTests: XCTestCase {
         task.fieldVersions["isDone"] = 4; task.lifecycle = UUID()
         XCTAssertFalse(TaskRules.accepts(op, for: task))
     }
+    func testWatchDoesNotReplayQueuedIntentOverPhoneChangeAfterAcknowledgedOperation() {
+        var task = ReminderItem(); task.fieldVersions["isDone"] = 7
+        let ack = CompletionAck(operationID: UUID(), accepted: true, completionRevision: 7)
+        XCTAssertTrue(TaskRules.canContinue(after: ack, task: task))
+        task.fieldVersions["isDone"] = 8
+        XCTAssertFalse(TaskRules.canContinue(after: ack, task: task))
+        XCTAssertFalse(TaskRules.canContinue(after: CompletionAck(operationID: UUID(), accepted: false), task: task))
+    }
     func testDateOnlyTravelsButInstantStaysFixedAndInvalidDatesFail() {
         var china = Calendar(identifier: .gregorian); china.timeZone = TimeZone(identifier: "Asia/Shanghai")!
         var london = china; london.timeZone = TimeZone(identifier: "Europe/London")!
@@ -65,5 +73,19 @@ final class TaskRulesTests: XCTestCase {
         XCTAssertEqual(tags, [TaskTag(key: "area", value: "Office")])
         var task = ReminderItem(); task.title = "Buy apples"; task.tags = [TaskTag(key: "place", value: "market")]
         XCTAssertTrue(TaskRules.matches(task, query: "appls market")); XCTAssertFalse(TaskRules.matches(task, query: "apples hospital"))
+    }
+    func testLegacyOversizeAttributesArePreservedUntilEdited() throws {
+        var legacy = ReminderItem(); legacy.title = String(repeating: "旧", count: 110)
+        var edited = legacy; edited.isDone = true
+        XCTAssertNoThrow(try TaskRules.validate(edited, among: [legacy], previous: legacy))
+        edited.title += "新"
+        XCTAssertThrowsError(try TaskRules.validate(edited, among: [legacy], previous: legacy))
+    }
+    func testDirectTitleMatchRanksAboveFuzzyAndBodyMatches() {
+        var direct = ReminderItem(); direct.title = "Buy apples"
+        var fuzzy = ReminderItem(); fuzzy.title = "Buy appls"
+        var body = ReminderItem(); body.title = "Shopping"; body.body = "apples"
+        XCTAssertGreaterThan(TaskRules.relevance(direct, query: "apples"), TaskRules.relevance(body, query: "apples"))
+        XCTAssertGreaterThan(TaskRules.relevance(body, query: "apples"), TaskRules.relevance(fuzzy, query: "apples"))
     }
 }

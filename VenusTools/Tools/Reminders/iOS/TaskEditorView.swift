@@ -28,6 +28,7 @@ struct TaskEditorView: View {
     @State private var tagKey = ""
     @State private var tagValue = ""
     @State private var voicePrefix = ""
+    @State private var lastVoiceInput = ""
     @State private var imageToEdit: TaskImage?
     var onSaved: (UUID) -> Void
     var onClose: () -> Void
@@ -60,7 +61,7 @@ struct TaskEditorView: View {
             for field in TaskField.allCases where field.value(old) != field.value(new) { draft.fieldRevisions[field.rawValue, default: 0] += 1 }
             persistDraft()
         }
-        .onChange(of: draft.input) { _, _ in persistDraft() }
+        .onChange(of: draft.input) { _, _ in if processing { cancelAnalysis() }; persistDraft() }
         .onChange(of: draft.images) { _, _ in persistDraft() }
         .onChange(of: draft.tab) { _, _ in voice.stop(); persistDraft() }
         .onChange(of: photos) { _, values in
@@ -69,12 +70,22 @@ struct TaskEditorView: View {
                 catch { self.error = error.localizedDescription }
             }; photos = [] }
         }
-        .onReceive(voice.$text) { text in if !text.isEmpty { draft.input = voicePrefix + text } }
+        .onReceive(voice.$text) { text in
+            if !text.isEmpty, !finished, draft.input == lastVoiceInput {
+                draft.input = voicePrefix + text; lastVoiceInput = draft.input
+            }
+        }
         .onReceive(voice.$error) { if let value = $0 { error = value } }
         .onDisappear { cancelAnalysis(); voice.cancel(); if !finished { persistDraft() } }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in cancelAnalysis(); voice.cancel(); persistDraft() }
-        .confirmationDialog("发现未完成草稿，最多保留 7 天", isPresented: $askRestore, titleVisibility: .visible) {
-            Button("恢复草稿") { if let restorable { draft = restorable; pendingImages = Set(restorable.images.suffix(3).map(\.id)) }; restorable = nil }
+        .alert("发现未完成草稿，最多保留 7 天", isPresented: $askRestore) {
+            Button("恢复草稿") {
+                if let restorable {
+                    draft = restorable; pendingImages = Set(restorable.selectedImageIDs ?? [])
+                    conflicts = restorable.unresolvedConflicts ?? []; conflictingTask = restorable.conflictProposal
+                }
+                restorable = nil
+            }
             Button("放弃旧草稿", role: .destructive) { try? store.discardDraft(draft.key); restorable = nil }
         }
         .confirmationDialog("离开编辑页", isPresented: $askLeave, titleVisibility: .visible) {
@@ -111,7 +122,7 @@ struct TaskEditorView: View {
                                 Text("建议：\(display(field, proposal))").font(.caption).lineLimit(4)
                                 HStack {
                                     Button("使用建议") { field.copy(from: proposal, to: &draft.task); conflicts.removeAll { $0 == field }; persistDraft() }
-                                    Button("保留当前") { conflicts.removeAll { $0 == field } }
+                                    Button("保留当前") { conflicts.removeAll { $0 == field }; persistDraft() }
                                 }.buttonStyle(.bordered)
                             }
                         }
@@ -136,7 +147,7 @@ struct TaskEditorView: View {
                 }
                 TextField("例如：明天下午三点去取快递", text: $draft.input, axis: .vertical).lineLimit(3...8).padding(14).background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 16))
                 HStack {
-                    Button { if voice.recording { voice.stop() } else { voicePrefix = draft.input.isEmpty ? "" : draft.input + "\n"; Task { await voice.start() } } } label: { Label(voice.recording ? "结束录音" : "语音", systemImage: voice.recording ? "stop.circle.fill" : "mic") }
+                    Button { if voice.recording { voice.stop() } else { lastVoiceInput = draft.input; voicePrefix = draft.input.isEmpty ? "" : draft.input + "\n"; Task { await voice.start() } } } label: { Label(voice.recording ? "结束录音" : "语音", systemImage: voice.recording ? "stop.circle.fill" : "mic") }.disabled(voice.starting)
                     PhotosPicker(selection: $photos, maxSelectionCount: 3, matching: .images) { Image(systemName: "photo") }.accessibilityLabel("从相册添加图片")
                     Menu {
                         Button("拍摄") { if UIImagePickerController.isSourceTypeAvailable(.camera) { camera = true } else { error = "此设备没有可用相机" } }
@@ -227,7 +238,19 @@ struct TaskEditorView: View {
     private var externalConflictSheet: some View {
         NavigationStack { List {
             Section { Text("任务在其他入口被更新。默认保留最新已保存值，勾选才使用本页修改。") }
-            ForEach(saveConflicts) { field in Toggle(isOn: Binding(get: { choices.contains(field) }, set: { if $0 { choices.insert(field) } else { choices.remove(field) } })) { VStack(alignment: .leading) { Text(field.label); Text("本页：\(display(field, draft.task))").font(.caption); if let latest = store.item(draft.task.id) { Text("已保存：\(display(field, latest))").font(.caption) } } }
+            ForEach(saveConflicts) { field in
+                Toggle(isOn: Binding(get: { choices.contains(field) }, set: {
+                    if $0 { choices.insert(field) } else { choices.remove(field) }
+                })) {
+                    VStack(alignment: .leading) {
+                        Text(field.label)
+                        Text("本页：\(display(field, draft.task))").font(.caption)
+                        if let latest = store.item(draft.task.id) {
+                            Text("已保存：\(display(field, latest))").font(.caption)
+                        }
+                    }
+                }
+            }
         }.navigationTitle("确认属性冲突").toolbar {
             ToolbarItem(placement: .cancellationAction) { Button("取消") { saveConflicts = [] } }
             ToolbarItem(placement: .confirmationAction) { Button("确认保存") { finishSave() } }
@@ -242,9 +265,16 @@ struct TaskEditorView: View {
         if field == .tags { return task.tags.map { "\($0.key):\($0.value)" }.joined(separator: "、") }
         return field.value(task)
     }
-    private func persistDraft() { guard !finished else { return }; do { try store.saveDraft(draft) } catch { self.error = "草稿保存失败：\(error.localizedDescription)" } }
+    private func persistDraft() {
+        guard !finished else { return }
+        var value = draft
+        value.unresolvedConflicts = conflicts; value.conflictProposal = conflictingTask
+        value.selectedImageIDs = draft.images.filter { pendingImages.contains($0.id) }.map(\.id)
+        do { try store.saveDraft(value) } catch { self.error = "草稿保存失败：\(error.localizedDescription)" }
+    }
     private func cancelAnalysis() { requestID = UUID(); analysis?.cancel(); analysis = nil; processing = false }
     private func addImage(_ data: Data) throws {
+        guard !finished else { return }
         guard draft.images.count < 10, pendingImages.count < 3 else { throw TaskFailure("每轮最多 3 张图片，一份草稿最多保留 10 张") }
         let jpeg = try TaskImageReader.validatedJPEG(data)
         cancelAnalysis(); let image = try store.storeImage(jpeg); draft.images.append(image); pendingImages.insert(image.id); persistDraft()

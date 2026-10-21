@@ -76,7 +76,7 @@ final class ReminderStore: NSObject, ObservableObject, WCSessionDelegate, UNUser
         } else if database.tasks.contains(where: { $0.id == task.id }) { throw TaskFailure("任务已保存，请重新打开") }
         task.title = task.title.trimmingCharacters(in: .whitespacesAndNewlines)
         task.tags = TaskRules.normalizedTags(task.tags)
-        try TaskRules.validate(task, among: reminders)
+        try TaskRules.validate(task, among: reminders, previous: old)
         var next = database
         next.revision += 1
         task.revision = next.revision
@@ -199,7 +199,7 @@ final class ReminderStore: NSObject, ObservableObject, WCSessionDelegate, UNUser
     private func receive(_ context: [String: Any]) -> [String: Any] {
         guard let data = context["completionOperation"] as? Data,
               let operation = try? JSONDecoder().decode(CompletionOperation.self, from: data) else { return snapshotContext() }
-        let ack: CompletionAck
+        var ack: CompletionAck
         if let previous = database.acknowledgements[operation.id.uuidString] { ack = previous }
         else {
             var next = database
@@ -211,6 +211,7 @@ final class ReminderStore: NSObject, ObservableObject, WCSessionDelegate, UNUser
                 next.tasks[index].completedAt = operation.isDone ? Date() : nil
                 next.tasks[index].revision = next.revision
                 next.tasks[index].fieldVersions[TaskField.isDone.rawValue] = next.revision
+                ack.completionRevision = next.revision
                 var history = next.history[operation.taskID.uuidString] ?? []
                 history.insert(TaskVersion(source: "Apple Watch", task: next.tasks[index]), at: 0)
                 next.history[operation.taskID.uuidString] = Array(history.prefix(20))

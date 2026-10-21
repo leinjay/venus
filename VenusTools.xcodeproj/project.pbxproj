@@ -180,11 +180,13 @@
 		};
 		A20000000000000000000011 /* Stores */ = {
 			isa = PBXGroup;
+			children = ();
 			path = Stores;
 			sourceTree = "<group>";
 		};
 		A20000000000000000000012 /* Views */ = {
 			isa = PBXGroup;
+			children = ();
 			path = Views;
 			sourceTree = "<group>";
 		};

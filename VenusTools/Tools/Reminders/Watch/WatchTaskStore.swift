@@ -80,8 +80,9 @@ final class WatchReminderStore: NSObject, ObservableObject, WCSessionDelegate {
         if let data = context["completionAck"] as? Data, let ack = try? JSONDecoder().decode(CompletionAck.self, from: data),
            let entry = cache.pending.first(where: { $0.value.operation.id == ack.operationID }) {
             cache.pending.removeValue(forKey: entry.key)
-            if ack.accepted, let desired = entry.value.nextIntent,
-               let task = cache.snapshot.tasks.first(where: { $0.id == entry.value.operation.taskID }), desired != task.isDone {
+            if let desired = entry.value.nextIntent,
+               let task = cache.snapshot.tasks.first(where: { $0.id == entry.value.operation.taskID }),
+               task.lifecycle == entry.value.operation.lifecycle, TaskRules.canContinue(after: ack, task: task), desired != task.isDone {
                 cache.pending[entry.key] = PendingCompletion(operation: CompletionOperation(taskID: task.id, lifecycle: task.lifecycle, baseRevision: task.fieldVersions[TaskField.isDone.rawValue] ?? 0, isDone: desired))
             } else if !ack.accepted { syncMessage = "手机任务已更新，已采用手机状态" }
         }

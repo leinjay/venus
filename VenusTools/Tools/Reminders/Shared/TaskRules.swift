@@ -17,11 +17,11 @@ enum TaskRules {
         return result
     }
 
-    static func validate(_ task: ReminderItem, among tasks: [ReminderItem]) throws {
+    static func validate(_ task: ReminderItem, among tasks: [ReminderItem], previous: ReminderItem? = nil) throws {
         let title = task.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty, title.count <= 100 else { throw TaskFailure("标题需要 1～100 个字符") }
-        guard task.summary.count <= 300 else { throw TaskFailure("概要最多 300 个字符") }
-        guard task.body.count <= 20_000 else { throw TaskFailure("具体内容最多 20,000 个字符") }
+        guard previous?.title == task.title || (!title.isEmpty && title.count <= 100) else { throw TaskFailure("标题需要 1～100 个字符") }
+        guard previous?.summary == task.summary || task.summary.count <= 300 else { throw TaskFailure("概要最多 300 个字符") }
+        guard previous?.body == task.body || task.body.count <= 20_000 else { throw TaskFailure("具体内容最多 20,000 个字符") }
         guard task.tags.count <= 20, task.tags.allSatisfy({ (1...20).contains($0.key.count) && (1...50).contains($0.value.count) }) else {
             throw TaskFailure("最多 20 个标签；名称 1～20 字，值 1～50 字")
         }
@@ -61,6 +61,11 @@ enum TaskRules {
             && operation.baseRevision == (task.fieldVersions[TaskField.isDone.rawValue] ?? 0)
     }
 
+    static func canContinue(after ack: CompletionAck, task: ReminderItem) -> Bool {
+        ack.accepted && ack.completionRevision == task.fieldVersions[TaskField.isDone.rawValue]
+            && ack.completionRevision != nil && task.deletedAt == nil
+    }
+
     static func dependencyIDs(for id: UUID, tasks: [ReminderItem]) -> Set<UUID> {
         let active = tasks.filter { $0.deletedAt == nil }
         let byID = Dictionary(uniqueKeysWithValues: active.map { ($0.id, $0) })
@@ -95,6 +100,17 @@ enum TaskRules {
                 }
             }
             return false
+        }
+    }
+
+    static func relevance(_ task: ReminderItem, query: String) -> Int {
+        query.split(whereSeparator: \.isWhitespace).reduce(0) { score, word in
+            let term = String(word)
+            if task.title.localizedCaseInsensitiveContains(term) { return score + 100 }
+            if task.summary.localizedCaseInsensitiveContains(term) { return score + 40 }
+            if task.tags.contains(where: { "\($0.key):\($0.value)".localizedCaseInsensitiveContains(term) }) { return score + 30 }
+            if task.body.localizedCaseInsensitiveContains(term) { return score + 10 }
+            return score + 1
         }
     }
 

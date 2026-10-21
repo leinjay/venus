@@ -27,6 +27,7 @@ struct RemindersView: View {
     @State private var searchError: String?
     @AppStorage("tasks.grid") private var grid = false
     @AppStorage("tasks.sort") private var sort = 0
+    @AppStorage("tasks.sortExplicit") private var sortExplicit = false
     @AppStorage("tasks.hideNotificationTitle") private var hideTitle = false
 
     private var filtered: [ReminderItem] {
@@ -47,6 +48,10 @@ struct RemindersView: View {
             return true
         }
         return result.sorted { a, b in
+            if !(keywords ?? query).isEmpty && !sortExplicit {
+                let left = TaskRules.relevance(a, query: keywords ?? query), right = TaskRules.relevance(b, query: keywords ?? query)
+                if left != right { return left > right }
+            }
             if sort == 1, a.addedAt != b.addedAt { return a.addedAt > b.addedAt }
             if sort == 2 { return TaskRules.importanceOrder(a, b) }
             return TaskRules.executionOrder(a, b)
@@ -125,7 +130,10 @@ struct RemindersView: View {
 
     private var filterSheet: some View {
         NavigationStack { Form {
-            Section("排序") { Picker("排序方式", selection: $sort) { Text("执行时间：早到晚").tag(0); Text("添加时间：新到旧").tag(1); Text("重要程度：高到低").tag(2) } }
+            Section("排序") {
+                Picker("排序方式", selection: Binding(get: { sort }, set: { sort = $0; sortExplicit = true })) { Text("执行时间：早到晚").tag(0); Text("添加时间：新到旧").tag(1); Text("重要程度：高到低").tag(2) }
+                if sortExplicit { Button("查找时优先相关性") { sortExplicit = false } }
+            }
             Section("过滤") {
                 Picker("重要程度", selection: $priority) { Text("全部").tag(-1); ForEach(TaskPriority.allCases) { Text($0.title).tag($0.rawValue) } }
                 TextField("标签，例如 领域:生活,地点:家", text: $tagQuery)

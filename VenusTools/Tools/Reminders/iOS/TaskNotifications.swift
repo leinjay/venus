@@ -7,6 +7,8 @@ actor TaskNotifications {
     private let ledgerURL: URL
     private var ledger: [String: Date]
     private var generation = 0
+    private var running = false
+    private var pending: (tasks: [ReminderItem], requestPermission: Bool)?
 
     init(directory: URL) {
         ledgerURL = directory.appendingPathComponent("notifications.json")
@@ -15,6 +17,20 @@ actor TaskNotifications {
 
     func reconcile(_ tasks: [ReminderItem], requestPermission: Bool) async -> String {
         generation += 1
+        pending = (tasks, requestPermission || (pending?.requestPermission ?? false))
+        guard !running else { return "正在更新通知" }
+        running = true
+        defer { running = false }
+        var result = "正在更新通知"
+        // Drain sequentially: an old suspended add must finish before the newest pass removes it.
+        while let next = pending {
+            pending = nil
+            result = await apply(next.tasks, requestPermission: next.requestPermission)
+        }
+        return result
+    }
+
+    private func apply(_ tasks: [ReminderItem], requestPermission: Bool) async -> String {
         let current = generation
         var settings = await center.notificationSettings()
         if settings.authorizationStatus == .notDetermined, requestPermission {

@@ -32,7 +32,9 @@ enum TaskAI {
         guard let changes = object["changes"] as? [String: Any], Set(changes.keys).isSubset(of: Set(TaskField.allCases.map(\.rawValue) + ["bodyAppend", "removeTagKeys"])) else { throw TaskFailure("模型返回了不支持的属性，请重试或手动编辑") }
         var result = draft
         var fields: [TaskField] = []
-        for (key, value) in changes {
+        // Apply additions before explicit removals so dictionary iteration order cannot change results.
+        for key in changes.keys.sorted(by: { ($0 == "removeTagKeys" ? 1 : 0, $0) < ($1 == "removeTagKeys" ? 1 : 0, $1) }) {
+            let value = changes[key]!
             if key == "bodyAppend" {
                 guard changes["body"] == nil, let text = value as? String else { throw TaskFailure("正文追加格式不正确") }
                 result.body = draft.body + (draft.body.isEmpty ? "" : "\n") + text
@@ -85,7 +87,7 @@ enum TaskAI {
         // An unfinished title is permitted while discussing; all other validations still apply.
         var check = result; if check.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { check.title = "待补充" }
         check.tags = TaskRules.normalizedTags(check.tags)
-        try TaskRules.validate(check, among: candidates)
+        try TaskRules.validate(check, among: candidates, previous: draft)
         return TaskAIProposal(task: result, fields: TaskField.allCases.filter { fields.contains($0) }, message: object["message"] as? String ?? "已整理，请检查属性后保存")
     }
 

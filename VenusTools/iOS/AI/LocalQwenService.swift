@@ -49,7 +49,7 @@ final class LocalQwenService: ObservableObject {
     static let shared = LocalQwenService()
     static let modelID = "mlx-community/Qwen3-1.7B-4bit"
     static let revision = "3b1b1768f8f8cf8351c712464f906e86c2b8269e"
-    struct File {
+    struct File: Sendable {
         let name: String; let size: Int64; let sha256: String
     }
     static let files: [File] = [
@@ -74,17 +74,20 @@ final class LocalQwenService: ObservableObject {
 
     private init() {
         directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Models/Qwen3-1.7B-4bit", isDirectory: true)
-        ready = FileManager.default.fileExists(atPath: directory.appendingPathComponent("verified").path)
+        ready = (try? String(contentsOf: directory.appendingPathComponent("verified"), encoding: .utf8)) == Self.revision
             && Self.files.allSatisfy { file in (try? directory.appendingPathComponent(file.name).resourceValues(forKeys: [.fileSizeKey]).fileSize) == Int(file.size) }
         if ready { status = "Qwen3 已就绪 · 本机离线处理" }
     }
 
     func download(allowsCellular: Bool = false) {
         guard !preparing, !generating else { return }
+        preparing = true
         downloadTask = Task {
-            preparing = true; defer { preparing = false }
+            defer { preparing = false }
             do {
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                var resources = URLResourceValues(); resources.isExcludedFromBackup = true
+                var modelDirectory = directory; try modelDirectory.setResourceValues(resources)
                 let capacity = try directory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage ?? 0
                 guard capacity > 2_000_000_000 else { throw TaskFailure("请预留至少 2 GB 空间用于下载与校验") }
                 let configuration = URLSessionConfiguration.ephemeral
@@ -138,6 +141,8 @@ final class LocalQwenService: ObservableObject {
             }
             await engine.unload(); ready = false
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            var resources = URLResourceValues(); resources.isExcludedFromBackup = true
+            var modelDirectory = directory; try modelDirectory.setResourceValues(resources)
             for file in Self.files {
                 let target = directory.appendingPathComponent(file.name)
                 if FileManager.default.fileExists(atPath: target.path) { try FileManager.default.removeItem(at: target) }

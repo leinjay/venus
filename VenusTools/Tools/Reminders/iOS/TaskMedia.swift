@@ -10,20 +10,28 @@ final class TaskVoiceInput: ObservableObject {
     @Published var text = ""
     @Published var error: String?
     @Published private(set) var recording = false
+    @Published private(set) var starting = false
     private let engine = AVAudioEngine()
     private var recognition: SFSpeechRecognitionTask?
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var timer: Task<Void, Never>?
     private var hasTap = false
+    private var identity = UUID()
 
     func start() async {
+        guard !starting, !recording else { return }
+        cancel()
+        let identity = self.identity
+        starting = true
+        defer { starting = false }
         let authorized = await withCheckedContinuation { continuation in SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0 == .authorized) } }
         let microphone = await withCheckedContinuation { continuation in AVAudioSession.sharedInstance().requestRecordPermission { continuation.resume(returning: $0) } }
+        guard identity == self.identity else { return }
         guard authorized, microphone else { error = "请在系统设置中允许麦克风与语音识别，仍可直接输入文字"; return }
         guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "zh-CN")), recognizer.isAvailable, recognizer.supportsOnDeviceRecognition else {
             error = "当前设备暂不支持普通话离线识别，请使用文字输入"; return
         }
-        cancel(); text = ""; error = nil
+        text = ""; error = nil
         do {
             let audio = AVAudioSession.sharedInstance()
             try audio.setCategory(.record, mode: .measurement, options: .duckOthers); try audio.setActive(true)
@@ -36,6 +44,7 @@ final class TaskVoiceInput: ObservableObject {
             node.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in request.append(buffer) }; hasTap = true
             recognition = recognizer.recognitionTask(with: request) { result, failure in
                 Task { @MainActor in
+                    guard identity == self.identity else { return }
                     if let result { self.text = result.bestTranscription.formattedString }
                     if result?.isFinal == true || failure != nil {
                         self.stop()
@@ -52,7 +61,7 @@ final class TaskVoiceInput: ObservableObject {
         request?.endAudio(); recording = false; timer?.cancel(); timer = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
-    func cancel() { stop(); recognition?.cancel(); recognition = nil; request = nil }
+    func cancel() { identity = UUID(); stop(); recognition?.cancel(); recognition = nil; request = nil }
 }
 
 enum TaskImageReader {

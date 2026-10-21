@@ -203,6 +203,9 @@ struct TaskDraft: Codable {
     var tab = 0
     var updatedAt = Date()
     var fieldRevisions: [String: Int] = [:]
+    var unresolvedConflicts: [TaskField]?
+    var conflictProposal: ReminderItem?
+    var selectedImageIDs: [UUID]?
     var key: String { base?.id.uuidString ?? "new" }
 }
 
@@ -217,6 +220,7 @@ struct CompletionOperation: Codable, Identifiable {
 struct CompletionAck: Codable {
     var operationID: UUID
     var accepted: Bool
+    var completionRevision: Int? = nil
 }
 
 struct TaskSnapshot: Codable {
