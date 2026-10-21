@@ -39,6 +39,8 @@ jobs:
         run: |
           APP_PATH="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/VenusTools.app"
           test -d "$APP_PATH"
+          test -d "$APP_PATH/Watch/VenusToolsWatch.app"
+          test -f "$APP_PATH/mlx-swift_Cmlx.bundle/default.metallib"
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/VenusTools.app
           /usr/bin/ditto -c -k --sequesterRsrc --keepParent Payload VenusTools-unsigned.ipa

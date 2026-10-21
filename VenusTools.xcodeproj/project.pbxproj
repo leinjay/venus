@@ -50,7 +50,7 @@
 		E10000000000000000000004 /* Embed Watch Content */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
-			dstPath = "";
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
 			dstSubfolderSpec = 16;
 			files = (
 				B10000000000000000000015 /* VenusToolsWatch.app in Embed Watch Content */,
@@ -423,7 +423,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.venus.VenusTools;
-				INFOPLIST_KEY_WKWatchKitApp = YES;
+				INFOPLIST_KEY_WKApplication = YES;
 				SDKROOT = watchos;
 				SUPPORTED_PLATFORMS = "watchos watchsimulator";
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", );
@@ -444,7 +444,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.venus.VenusTools;
-				INFOPLIST_KEY_WKWatchKitApp = YES;
+				INFOPLIST_KEY_WKApplication = YES;
 				SDKROOT = watchos;
 				SUPPORTED_PLATFORMS = "watchos watchsimulator";
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", );
