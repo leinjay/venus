@@ -31,6 +31,7 @@ struct TaskDetailView: View {
                 }
             } else { ContentUnavailableView("任务已移除", systemImage: "trash", description: Text("可返回列表，在回收站查看。")) }
         }.background(AppTheme.canvas.ignoresSafeArea())
+        .onAppear { tab = 0 }
     }
     private func information(_ task: ReminderItem) -> some View {
         ScrollView { VStack(alignment: .leading, spacing: 18) {

@@ -84,6 +84,7 @@ final class ReminderStore: NSObject, ObservableObject, WCSessionDelegate, UNUser
             task.fieldVersions[field.rawValue] = next.revision
         }
         if old?.isDone != task.isDone { task.completedAt = task.isDone ? Date() : nil }
+        if old?.addedAt != task.addedAt { task.addedAtInferred = false }
         if let old, old.schedule != task.schedule { task.notificationVersion = UUID() }
         next.tasks.removeAll { $0.id == task.id }; next.tasks.append(task)
         var history = next.history[task.id.uuidString] ?? []

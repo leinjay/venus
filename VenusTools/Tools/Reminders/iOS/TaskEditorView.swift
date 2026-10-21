@@ -41,7 +41,7 @@ struct TaskEditorView: View {
         _restorable = State(initialValue: restoredVersion == nil ? store.loadDraft(value.key) : nil)
     }
 
-    var body: some View {
+    private var editorContent: some View {
         VStack(spacing: 0) {
             Picker("编辑方式", selection: $draft.tab) { Text("与 AI 对话").tag(0); Text("属性表单").tag(1) }
                 .pickerStyle(.segmented).padding()
@@ -56,6 +56,10 @@ struct TaskEditorView: View {
             ToolbarItem(placement: .topBarLeading) { Button("返回") { voice.stop(); askLeave = true } }
             ToolbarItem(placement: .topBarTrailing) { Button("保存") { if processing { askSaveDuringAnalysis = true } else { prepareSave() } }.fontWeight(.semibold) }
         }
+    }
+
+    private var observedEditor: some View {
+        editorContent
         .onAppear { askRestore = restorable != nil }
         .onChange(of: draft.task) { old, new in
             for field in TaskField.allCases where field.value(old) != field.value(new) { draft.fieldRevisions[field.rawValue, default: 0] += 1 }
@@ -78,6 +82,10 @@ struct TaskEditorView: View {
         .onReceive(voice.$error) { if let value = $0 { error = value } }
         .onDisappear { cancelAnalysis(); voice.cancel(); if !finished { persistDraft() } }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in cancelAnalysis(); voice.cancel(); persistDraft() }
+    }
+
+    private var editorDialogs: some View {
+        observedEditor
         .alert("发现未完成草稿，最多保留 7 天", isPresented: $askRestore) {
             Button("恢复草稿") {
                 if let restorable {
@@ -98,6 +106,10 @@ struct TaskEditorView: View {
             Button("保存当前草稿") { cancelAnalysis(); prepareSave() }
         }
         .alert("请检查", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("知道了") { error = nil } } message: { Text(error ?? "") }
+    }
+
+    var body: some View {
+        editorDialogs
         .sheet(isPresented: $showDependencies) { dependencyPicker }
         .sheet(item: $imageToEdit) { image in imageEditor(image) }
         .sheet(isPresented: $camera) { TaskCamera { image in do { if let data = image.jpegData(compressionQuality: 0.9) { try addImage(data) } } catch { self.error = error.localizedDescription } } }
@@ -290,7 +302,7 @@ struct TaskEditorView: View {
         let token = requestID, base = draft.task, revisions = draft.fieldRevisions
         analysis = Task {
             do {
-                let proposal = try await TaskAI.propose(input: input, imageText: imageText, draft: base, candidates: store.reminders)
+                let proposal = try await TaskAI.propose(input: input, imageText: imageText, draft: base, candidates: store.reminders, dialogue: draft.messages)
                 try Task.checkCancellation(); guard token == requestID else { return }
                 var changed = draft.task; conflicts = []; conflictingTask = proposal.task
                 for field in proposal.fields {

@@ -27,7 +27,7 @@ actor LocalQwenEngine {
                 ["role": "system", "content": system], ["role": "user", "content": prompt]
             ], additionalContext: ["enable_thinking": false]))
             guard input.text.tokens.size <= 6000 else { throw TaskFailure("模型上下文过长，请缩短输入或具体内容") }
-            let result = try MLXLMCommon.generate(input: input, parameters: GenerateParameters(maxTokens: 1800, temperature: 0.2, topP: 0.9), context: context) { _ in
+            let result: GenerateResult = try MLXLMCommon.generate(input: input, parameters: GenerateParameters(maxTokens: 1800, temperature: 0.2, topP: 0.9), context: context) { (_: [Int]) -> GenerateDisposition in
                 Task.isCancelled || Date() >= deadline ? .stop : .more
             }
             try Task.checkCancellation()
