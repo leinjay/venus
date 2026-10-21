@@ -9,3 +9,9 @@ xcuserdata/
 
 # Build artifacts
 *.ipa
+
+# Local model caches and Swift package output
+.models/
+.build/
+.swiftpm/
+__pycache__/

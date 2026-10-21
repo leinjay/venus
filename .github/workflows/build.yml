@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - master
+      - codex/task-module
   pull_request:
   workflow_dispatch:
 
@@ -19,6 +20,9 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+
+      - name: Test task data rules
+        run: swift test
 
       - name: Build iOS app and Watch companion
         run: >-
