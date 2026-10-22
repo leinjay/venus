@@ -21,7 +21,7 @@ class IPhonePackageTests(unittest.TestCase):
             app + "Watch/VenusToolsWatch.app/Info.plist": plistlib.dumps({"WKApplication": True, "CFBundleSupportedPlatforms": ["WatchOS"]}),
             app + "Watch/VenusToolsWatch.app/VenusToolsWatch": b"Watch executable",
             "WatchKitSupport2/WK": b"Watch support",
-            "__MACOS/Payload/._VenusTools.app": b"Finder metadata",
+            "__MACOSX/Payload/._VenusTools.app": b"Finder metadata",
         }
         if nested_watch:
             files[app + "PlugIns/OtherWatch.app/Info.plist"] = plistlib.dumps({"WKWatchKitApp": True})

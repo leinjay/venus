@@ -46,7 +46,7 @@ def package(source, destination):
         if binary not in names or metal not in names:
             raise ValueError("The iPhone executable or MLX Metal resource is missing.")
 
-        excluded = [app + "Watch/", "WatchKitSupport/", "WatchKitSupport2/", "__MACOS/"]
+        excluded = [app + "Watch/", "WatchKitSupport/", "WatchKitSupport2/", "__MACOSX/"]
         # Also recognize watchOS bundles embedded in a nonstandard location.
         for name in names:
             if name.startswith(app) and name != main_plist and name.endswith("/Info.plist"):
