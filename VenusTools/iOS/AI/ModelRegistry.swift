@@ -47,7 +47,7 @@ final class ModelRegistry: ObservableObject {
         let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Settings", isDirectory: true)
         file = folder.appendingPathComponent("models-v1.json")
         let defaults = ModelConfiguration.defaults()
-        data = ModelSettingsData(configurations: defaults, bindings: [ModelPurpose.dialogue.rawValue: defaults[0].id, ModelPurpose.summary.rawValue: defaults[0].id])
+        data = ModelSettingsData(configurations: defaults, bindings: [ModelPurpose.dialogue.binding: defaults[0].id, ModelPurpose.summary.binding: defaults[0].id])
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             if FileManager.default.fileExists(atPath: file.path) {

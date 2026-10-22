@@ -39,6 +39,8 @@ final class ModelConfigurationTests: XCTestCase {
         config.requiresKey = true; XCTAssertThrowsError(try ModelValidation.validate(config, among: []))
         config.requiresKey = false; config.baseURL = "https://public.example.com/v1"; XCTAssertThrowsError(try ModelValidation.validate(config, among: []))
         XCTAssertFalse(ModelValidation.isPrivateHost("172.32.0.1")); XCTAssertTrue(ModelValidation.isPrivateHost("172.16.0.1"))
+        XCTAssertFalse(ModelValidation.isPrivateHost("10.0.example.0.1"))
+        XCTAssertFalse(ModelValidation.isPrivateHost("10..0.0.1"))
     }
     func testBochaBodyMatchesSuppliedChatProtocolAndDoesNotPersistSecret() throws {
         let config = remote()
@@ -79,6 +81,12 @@ final class ModelConfigurationTests: XCTestCase {
         let raw = "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"thinking\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"正文\"}}]}\n\ndata: [DONE]\n\n"
         XCTAssertEqual(try ModelWire.response(Data(raw.utf8), config: config, status: 200), "正文")
         XCTAssertThrowsError(try ModelWire.response(Data(raw.replacingOccurrences(of: "data: [DONE]", with: "").utf8), config: config, status: 200))
+    }
+    func testTaskPurposesAreNamespacedAndSearchOnlyInheritsDialogue() {
+        XCTAssertEqual(ModelPurpose.dialogue.binding, "reminders.dialogue")
+        XCTAssertEqual(ModelPurpose.search.binding, ModelPurpose.dialogue.binding)
+        XCTAssertNotEqual(ModelPurpose.summary.binding, ModelPurpose.dialogue.binding)
+        XCTAssertNotEqual(ModelPurpose.search.disclosure, ModelPurpose.dialogue.disclosure)
     }
     func testManagedHeaderValuesCannotInjectHeaders() throws {
         XCTAssertThrowsError(try ModelWire.request(remote(), key: "bad\r\nHost: evil", system: "", prompt: ""))

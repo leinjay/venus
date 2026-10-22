@@ -19,7 +19,7 @@ enum ModelAdapter: String, Codable, CaseIterable, Identifiable {
 enum ModelPurpose: String, CaseIterable, Identifiable {
     case dialogue, summary, search
     var id: String { rawValue }
-    var binding: String { self == .search ? ModelPurpose.dialogue.rawValue : rawValue }
+    var binding: String { "reminders." + (self == .search ? ModelPurpose.dialogue.rawValue : rawValue) }
     var title: String { switch self { case .dialogue: return "任务 AI 对话"; case .summary: return "今日总结"; case .search: return "智能查找" } }
     var disclosure: String {
         switch self {
@@ -92,8 +92,9 @@ enum ModelValidation {
         let host = host.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
         if host == "localhost" || host == "::1" || host.hasSuffix(".local") { return true }
         if host.contains(":") { return host.hasPrefix("fc") || host.hasPrefix("fd") || host.hasPrefix("fe80:") }
-        let parts = host.split(separator: ".").compactMap { Int($0) }
-        guard parts.count == 4, parts.allSatisfy({ (0...255).contains($0) }) else { return false }
+        let labels = host.split(separator: ".", omittingEmptySubsequences: false)
+        let parts = labels.compactMap { Int($0) }
+        guard labels.count == 4, parts.count == 4, parts.allSatisfy({ (0...255).contains($0) }) else { return false }
         return parts[0] == 10 || parts[0] == 127 || (parts[0] == 172 && (16...31).contains(parts[1])) || (parts[0] == 192 && parts[1] == 168) || (parts[0] == 169 && parts[1] == 254)
     }
     static func validateKey(_ key: String) throws {

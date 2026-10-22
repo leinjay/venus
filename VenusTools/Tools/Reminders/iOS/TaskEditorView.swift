@@ -335,6 +335,7 @@ struct TaskEditorView: View {
 
 struct QwenModelPanel: View {
     @ObservedObject private var model = LocalQwenService.shared
+    @ObservedObject private var registry = ModelRegistry.shared
     @State private var importer = false
     @State private var cellular = false
     @State private var delete = false
@@ -351,6 +352,8 @@ struct QwenModelPanel: View {
         }.surfaceCard(padding: 14)
         .fileImporter(isPresented: $importer, allowedContentTypes: [.folder]) { result in if case .success(let url) = result { Task { await model.importDirectory(url) } } }
         .confirmationDialog("使用蜂窝网络下载约 984 MB 模型，可能产生流量费用", isPresented: $cellular, titleVisibility: .visible) { Button("继续下载") { model.download(allowsCellular: true) } }
-        .confirmationDialog("删除后 AI 暂不可用，任务和已保存文字仍保留", isPresented: $delete, titleVisibility: .visible) { Button("删除模型", role: .destructive) { Task { await model.remove() } } }
+        .confirmationDialog("删除本机 Qwen3 资源？", isPresented: $delete, titleVisibility: .visible) { Button("删除模型", role: .destructive) { Task { await model.remove() } } } message: {
+            Text("以下配置将需要重新准备资源：" + registry.configurations.filter { $0.execution == .onDevice && $0.modelID == LocalQwenService.modelID }.map(\.name).joined(separator: "、") + "。配置、任务和已保存文字仍保留。")
+        }
     }
 }
