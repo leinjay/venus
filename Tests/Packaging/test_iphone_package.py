@@ -14,12 +14,13 @@ class IPhonePackageTests(unittest.TestCase):
     def fixture(self, path, nested_watch=False, platform="iPhoneOS"):
         app = "Payload/VenusTools.app/"
         files = {
+            # Removed entries before retained files exercise shifted ZIP header offsets.
+            app + "Watch/VenusToolsWatch.app/Info.plist": plistlib.dumps({"WKApplication": True, "CFBundleSupportedPlatforms": ["WatchOS"]}),
+            app + "Watch/VenusToolsWatch.app/VenusToolsWatch": b"Watch executable",
             app + "Info.plist": plistlib.dumps({"CFBundleExecutable": "VenusTools", "CFBundleSupportedPlatforms": [platform]}),
             app + "VenusTools": b"iPhone executable",
             app + "mlx-swift_Cmlx.bundle/default.metallib": b"Metal resource",
             app + "PlugIns/Useful.appex/Info.plist": plistlib.dumps({"CFBundleSupportedPlatforms": ["iPhoneOS"]}),
-            app + "Watch/VenusToolsWatch.app/Info.plist": plistlib.dumps({"WKApplication": True, "CFBundleSupportedPlatforms": ["WatchOS"]}),
-            app + "Watch/VenusToolsWatch.app/VenusToolsWatch": b"Watch executable",
             "WatchKitSupport2/WK": b"Watch support",
             "__MACOSX/Payload/._VenusTools.app": b"Finder metadata",
         }

@@ -5,6 +5,7 @@ The result still requires signing. Removing Watch content does not certify any
 particular AltServer version or prove the cause of an installer crash.
 """
 import argparse
+from copy import copy
 import hashlib
 import json
 from pathlib import Path, PurePosixPath
@@ -60,7 +61,8 @@ def package(source, destination):
         with zipfile.ZipFile(temporary, "w") as output:
             for entry in kept:
                 # Preserve executable permissions, symlink attributes and all iOS file bytes.
-                output.writestr(entry, original.read(entry))
+                # ZipFile.writestr updates header_offset; keep the input index intact.
+                output.writestr(copy(entry), original.read(entry))
         with zipfile.ZipFile(temporary) as output:
             if set(output.namelist()) != {entry.filename for entry in kept}:
                 raise ValueError("Output archive is incomplete.")
