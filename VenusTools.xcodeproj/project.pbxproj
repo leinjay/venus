@@ -368,8 +368,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Venus;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "用于将语音输入转换为任务文字";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "仅使用设备本机语音识别整理任务";
@@ -394,8 +395,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Venus;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "用于将语音输入转换为任务文字";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "仅使用设备本机语音识别整理任务";
@@ -420,8 +422,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Venus;
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.venus.VenusTools;
 				INFOPLIST_KEY_WKApplication = YES;
 				SDKROOT = watchos;
@@ -441,8 +444,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = Venus;
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.venus.VenusTools;
 				INFOPLIST_KEY_WKApplication = YES;
 				SDKROOT = watchos;

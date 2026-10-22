@@ -99,6 +99,23 @@ enum TaskRules {
         return result
     }
 
+    /// The phone owns the data; Watch gets a compact, read-only projection.
+    static func watchSnapshot(_ tasks: [ReminderItem], revision: Int, now: Date = Date(), calendar: Calendar = .current) -> TaskSnapshot {
+        let start = calendar.startOfDay(for: now)
+        let cutoff = calendar.date(byAdding: .day, value: -6, to: start)!
+        let active = tasks.filter { $0.deletedAt == nil }
+        let unfinished = Set(active.filter { !$0.isDone }.map(\.id))
+        let visible = active.filter {
+            !$0.isDone || $0.completedAt.map { $0 >= cutoff } == true
+        }.map { task -> ReminderItem in
+            var value = task
+            value.body = ""; value.tags = []
+            value.prerequisiteIDs = task.prerequisiteIDs.filter { unfinished.contains($0) }
+            return value
+        }
+        return TaskSnapshot(revision: revision, tasks: visible)
+    }
+
     static func matches(_ task: ReminderItem, query: String) -> Bool {
         let text = ([task.title, task.summary, task.body] + task.tags.map { "\($0.key):\($0.value)" }).joined(separator: " ").folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
         return query.split(whereSeparator: \.isWhitespace).allSatisfy { term in

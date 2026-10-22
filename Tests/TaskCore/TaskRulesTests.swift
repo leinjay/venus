@@ -2,6 +2,38 @@ import XCTest
 @testable import VenusTaskCore
 
 final class TaskRulesTests: XCTestCase {
+    func testWatchSnapshotSharesSummaryButOmitsHeavyContentAndDeletedTasks() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        var parent = ReminderItem(); parent.title = "前置"
+        var completed = ReminderItem(); completed.title = "已完成前置"; completed.isDone = true; completed.completedAt = now
+        var deleted = ReminderItem(); deleted.title = "回收站"; deleted.deletedAt = now
+        var task = ReminderItem(); task.title = "要查看的任务"; task.summary = "手表上的概要"
+        task.body = String(repeating: "完整正文", count: 5_000); task.tags = [TaskTag(key: "地点", value: "家")]
+        task.prerequisiteIDs = [parent.id, completed.id, deleted.id, UUID()]
+        task.revision = 17; task.fieldVersions[TaskField.isDone.rawValue] = 9
+        let snapshot = TaskRules.watchSnapshot([task, parent, completed, deleted], revision: 20, now: now)
+        let projected = try XCTUnwrap(snapshot.tasks.first { $0.id == task.id })
+        XCTAssertEqual(snapshot.revision, 20); XCTAssertEqual(snapshot.tasks.count, 3)
+        XCTAssertEqual(projected.summary, task.summary); XCTAssertTrue(projected.body.isEmpty); XCTAssertTrue(projected.tags.isEmpty)
+        XCTAssertEqual(projected.prerequisiteIDs, [parent.id]); XCTAssertEqual(projected.lifecycle, task.lifecycle)
+        XCTAssertEqual(projected.revision, 17); XCTAssertEqual(projected.fieldVersions, task.fieldVersions)
+        XCTAssertEqual(task.body.count, 20_000) // Projection never changes the phone's source data.
+    }
+
+    func testWatchSnapshotKeepsAllPendingAndOnlySevenLocalDaysOfCompletedTasks() {
+        var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        let now = calendar.date(from: DateComponents(year: 2026, month: 10, day: 22, hour: 12))!
+        let cutoff = calendar.date(from: DateComponents(year: 2026, month: 10, day: 16))!
+        var pending = ReminderItem(); pending.title = "很早的未完成任务"; pending.addedAt = .distantPast
+        var recent = ReminderItem(); recent.isDone = true; recent.completedAt = cutoff
+        var old = recent; old.id = UUID(); old.completedAt = cutoff.addingTimeInterval(-1)
+        var unknown = recent; unknown.id = UUID(); unknown.completedAt = nil
+        let snapshot = TaskRules.watchSnapshot([pending, recent, old, unknown], revision: 4, now: now, calendar: calendar)
+        XCTAssertEqual(Set(snapshot.tasks.map(\.id)), Set([pending.id, recent.id]))
+        let empty = TaskRules.watchSnapshot([], revision: 5, now: now, calendar: calendar)
+        XCTAssertEqual(empty.revision, 5); XCTAssertTrue(empty.tasks.isEmpty)
+    }
+
     func testLegacyMigrationKeepsIdentityAndUnknownCompletionTime() throws {
         let id = UUID()
         let legacy = "{\"id\":\"\(id)\",\"title\":\"旧提醒\",\"dueAt\":1000,\"isDone\":true}"

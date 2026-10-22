@@ -56,7 +56,7 @@ iPhone-only 产物由 `scripts/package_iphone_only.py` 从完整 IPA 派生，�
 3. 将已配对 Apple Watch 的 iPhone 连接 Mac，解锁并信任电脑，按系统提示启用手机和手表的开发者模式，等待 Xcode 完成设备准备。
 4. 先选择 `VenusTools` scheme，在这台 iPhone 上运行；再选择 `VenusToolsWatch` scheme，以配对的 Apple Watch 为运行目标并运行。Xcode 完成签名和安装后，在手表上检查任务列表、完成操作与手机同步。
 
-依据：[Apple 的真机运行步骤](https://help.apple.com/xcode/mac/current/en.lproj/dev5a825a1ca.html)、[watchOS 工程与配套 Bundle ID 约束](https://developer.apple.com/documentation/technotes/tn3157-updating-your-watchos-project-for-swiftui-and-widgetkit)。当前 Windows 环境没有已验证的 Watch 开发版安装路线，也不能代替 Xcode 完成以上验证。
+依据：[Apple 的真机运行步骤](https://help.apple.com/xcode/mac/current/en.lproj/dev5a825a1ca.html)、[watchOS 工程与配套 Bundle ID 约束](https://developer.apple.com/documentation/technotes/tn3157-updating-your-watchos-project-for-swiftui-and-widgetkit)。本项目尚未完成 Windows 到真实 Watch 的安装验证；后续查到的社区 iLoader Watch 分支及本轮精简查看版，统一见 [Venus Watch 精简版与 Windows 安装](watch-companion.md)。该实验性路线不依赖用户拥有 Mac，也不代表已经验证所有设备与系统版本。
 
 只安装 iPhone-only 版时，没有手表上的任务列表与完成操作；手机已获准发送的通知仍可由系统转发到配对手表，无须先安装 watchOS 应用，具体显示取决于通知镜像设置与设备状态，见 [Apple 的 watchOS 通知说明](https://developer.apple.com/documentation/watchOS-Apps/notifications)。这与 WatchConnectivity 数据同步是两条不同的能力。
 

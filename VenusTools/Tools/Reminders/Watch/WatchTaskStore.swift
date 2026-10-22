@@ -11,6 +11,7 @@ private struct PendingCompletion: Codable {
 private struct WatchTaskCache: Codable {
     var snapshot = TaskSnapshot(revision: -1, tasks: [])
     var pending: [String: PendingCompletion] = [:]
+    var syncedAt: Date?
 }
 
 final class WatchReminderStore: NSObject, ObservableObject, WCSessionDelegate {
@@ -20,6 +21,8 @@ final class WatchReminderStore: NSObject, ObservableObject, WCSessionDelegate {
     private let key = "venus.tools.watch.tasks.v2"
     private var timer: AnyCancellable?
     private var waitingForSnapshot = false
+    var lastSyncedAt: Date? { cache.syncedAt }
+    var hasSnapshot: Bool { cache.snapshot.revision >= 0 }
     var reminders: [ReminderItem] {
         cache.snapshot.tasks.map { item in
             var task = item
@@ -32,6 +35,7 @@ final class WatchReminderStore: NSObject, ObservableObject, WCSessionDelegate {
     override init() {
         super.init()
         if let data = UserDefaults.standard.data(forKey: key), let value = try? JSONDecoder().decode(WatchTaskCache.self, from: data) { cache = value }
+        if hasSnapshot { syncMessage = "显示上次同步的任务" }
         if WCSession.isSupported() { session.delegate = self; session.activate() }
         timer = Timer.publish(every: 10, on: .main, in: .common).autoconnect().sink { [weak self] _ in
             guard let self, !self.cache.pending.isEmpty else { return }
@@ -70,9 +74,12 @@ final class WatchReminderStore: NSObject, ObservableObject, WCSessionDelegate {
             }
         }
     }
-    private func receive(_ context: [String: Any]) {
+    private func receive(_ context: [String: Any], markReceived: Bool = true) {
+        var receivedSnapshot = false
         if let data = context["taskSnapshot"] as? Data, let snapshot = try? JSONDecoder().decode(TaskSnapshot.self, from: data), snapshot.revision >= cache.snapshot.revision {
             cache.snapshot = TaskRules.mergeSnapshot(snapshot, into: cache.snapshot)
+            receivedSnapshot = true
+            if markReceived { cache.syncedAt = Date() }
             waitingForSnapshot = false
             for key in Array(cache.pending.keys) {
                 guard let pending = cache.pending[key] else { continue }
@@ -97,17 +104,35 @@ final class WatchReminderStore: NSObject, ObservableObject, WCSessionDelegate {
         persist()
         if cache.pending.isEmpty {
             if waitingForSnapshot { syncMessage = "任务列表传输中" }
-            else if syncMessage != "手机任务已更新，已采用手机状态" { syncMessage = "已与 iPhone 同步" }
+            else if receivedSnapshot && markReceived && syncMessage != "手机任务已更新，已采用手机状态" { syncMessage = "已与 iPhone 同步" }
         }
         else { syncMessage = "待同步 · 手机提醒可能尚未取消"; sendPending() }
     }
-    private func activate() {
-        receive(session.receivedApplicationContext)
-        if session.isReachable { session.sendMessage(["requestTaskSnapshot": true], replyHandler: { reply in DispatchQueue.main.async { self.receive(reply) } }, errorHandler: { _ in }) }
+    func requestSync() {
+        guard session.activationState == .activated else { syncMessage = "正在准备与 iPhone 连接"; return }
+        receive(session.receivedApplicationContext, markReceived: false)
+        if session.isReachable {
+            syncMessage = "正在同步 iPhone 任务"
+            session.sendMessage(["requestTaskSnapshot": true], replyHandler: { reply in
+                DispatchQueue.main.async { self.receive(reply) }
+            }, errorHandler: { _ in
+                DispatchQueue.main.async { self.syncMessage = "同步未完成，请打开手机 Venus 后重试" }
+            })
+        } else {
+            syncMessage = hasSnapshot ? "显示缓存 · 等待 iPhone 连接" : "等待 iPhone · 请打开手机 Venus"
+            if !session.outstandingUserInfoTransfers.contains(where: { $0.userInfo["requestTaskSnapshot"] as? Bool == true }) {
+                session.transferUserInfo(["requestTaskSnapshot": true])
+            }
+        }
         sendPending()
     }
-    func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) { DispatchQueue.main.async { self.activate() } }
-    func sessionReachabilityDidChange(_ session: WCSession) { DispatchQueue.main.async { self.activate() } }
+    func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
+        DispatchQueue.main.async {
+            if let error { self.syncMessage = "连接失败：\(error.localizedDescription)" }
+            else { self.requestSync() }
+        }
+    }
+    func sessionReachabilityDidChange(_ session: WCSession) { DispatchQueue.main.async { self.requestSync() } }
     func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) { DispatchQueue.main.async { self.receive(applicationContext) } }
     func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) { DispatchQueue.main.async { self.receive(userInfo) } }
     func session(_ session: WCSession, didReceive file: WCSessionFile) {

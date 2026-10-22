@@ -181,14 +181,7 @@ final class ReminderStore: NSObject, ObservableObject, WCSessionDelegate, UNUser
     func retryDelivery() { publishSnapshot(); refreshNotifications(requestPermission: true) }
 
     private func snapshot() -> TaskSnapshot {
-        let start = Calendar.current.startOfDay(for: Date())
-        let cutoff = Calendar.current.date(byAdding: .day, value: -6, to: start)!
-        let tasks = reminders.filter { !$0.isDone || $0.completedAt.map { $0 >= cutoff } == true }.map { task -> ReminderItem in
-            var value = task; value.body = ""; value.summary = ""; value.tags = []
-            value.prerequisiteIDs = task.prerequisiteIDs.filter { item($0)?.isDone == false }
-            return value
-        }
-        return TaskSnapshot(revision: database.revision, tasks: tasks)
+        TaskRules.watchSnapshot(reminders, revision: database.revision)
     }
     private func snapshotContext() -> [String: Any] {
         guard let data = try? JSONEncoder().encode(snapshot()) else { return [:] }

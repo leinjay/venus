@@ -26,16 +26,16 @@
 仓库包含 `.github/workflows/build.yml`。推送到 `main`、`master` 或 `codex/task-module`、创建 Pull Request，或在 Actions 中手动运行 `Build iOS package`，都会使用 GitHub 提供的 macOS runner 构建 iPhone 应用和 Apple Watch 配套应用。构建完成后，在该次 Actions 运行的 Artifacts 区域选择：
 
 - `VenusTools-iPhone-only-unsigned-ipa`：手机安装入口，内含 `VenusTools-iPhone-only-unsigned.ipa`，供 AltServer / AltStore 重新签名；已移除 Watch 子包。
-- `VenusTools-iPhone-Watch-unsigned-ipa`：完整包结构检查，内含 `VenusTools-iPhone-Watch-unsigned.ipa`；当前不作为 AltServer 安装入口。
+- `VenusTools-iPhone-Watch-unsigned-ipa`：完整手机与手表配套包，内含 `VenusTools-iPhone-Watch-unsigned.ipa`，供社区 iLoader Watch 分支尝试签名安装；不作为 AltServer 安装入口。
 
-两份 IPA 都未签名，不能直接安装。包含 Watch 的旧包存在用户反馈的 AltServer 崩溃，本次拆包尚未实测 AltServer 安装。手表开发版使用 Mac + Xcode 对手机与手表应用统一签名并运行，具体见[安装约定与手表安装步骤](docs/development/task-module.md#安装包与-apple-watch-安装约定2026-10-22)。只安装手机版仍可使用系统通知镜像，手表任务列表与完成操作需安装配套应用。
+两份 IPA 都未签名，不能直接安装。包含 Watch 的旧包存在用户反馈的 AltServer 崩溃，本次拆包尚未实测 AltServer 安装。手表开发版可使用 Mac + Xcode 统一签名并运行；Windows 实验性安装步骤及功能约定见 [Venus Watch 精简版与 Windows 安装](docs/development/watch-companion.md)。只安装手机版仍可使用系统通知镜像，手表任务列表与完成操作需安装配套应用。
 
 ## 当前实现
 
 - 专注：25 分钟倒计时。
 - 换算：千米/英里即时转换。
 - 清单：本机保存待办。
-- 任务：独立新建/编辑页（AI 对话与属性表单）、完整任务属性、本地草稿与版本、列表/网格、查找过滤、详情/依赖图、回收站、今日助手和系统通知；Watch 查看任务并提交完成操作。
+- 任务：独立新建/编辑页（AI 对话与属性表单）、完整任务属性、本地草稿与版本、列表/网格、查找过滤、详情/依赖图、回收站、今日助手和系统通知；Watch 精简版查看待办、今日任务、最近完成及概要，支持手动同步和离线缓存。
 
 任务模块位于 `VenusTools/Tools/Reminders/`，按 iOS、Watch、Shared 组织；本机 Qwen3 服务位于 `VenusTools/iOS/AI/`。主题与卡片样式继续使用 `VenusTools/Shared/AppTheme.swift`。
 
