@@ -156,7 +156,7 @@ final class ModelRegistry: ObservableObject {
         struct Setup: Decodable { var name: String; var baseURL: String; var modelID: String; var apiKey: String }
         guard bytes.count < 100_000, let envelope = try? JSONDecoder().decode(Envelope.self, from: bytes), envelope.version == 1,
               let encrypted = Data(base64Encoded: envelope.combined) else { throw ModelFailure("不是有效的加密初始化文件") }
-        let key = SymmetricKey(data: SHA256.hash(data: Data(passphrase.utf8)))
+        let key = SymmetricKey(data: SHA256.hash(data: Data(passphrase.trimmingCharacters(in: .whitespacesAndNewlines).utf8)))
         guard let clear = try? AES.GCM.open(AES.GCM.SealedBox(combined: encrypted), using: key), let setup = try? JSONDecoder().decode(Setup.self, from: clear) else { throw ModelFailure("导入口令不正确或文件已损坏") }
         var config = configurations.first { $0.name == setup.name && $0.baseURL == setup.baseURL && $0.modelID == setup.modelID } ?? ModelConfiguration()
         config.name = setup.name; config.execution = .thirdParty; config.adapter = .openAI; config.provider = "博查兼容网关"

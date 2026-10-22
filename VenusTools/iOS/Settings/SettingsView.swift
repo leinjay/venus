@@ -136,7 +136,7 @@ struct ModelBindingPanel: View {
                     do { try registry.bind(id, to: purpose) } catch { self.error = error.localizedDescription }
                 })) {
                     Text("未配置").tag(UUID?.none)
-                    ForEach(registry.configurations.filter { $0.enabled && $0.textCapable || $0.id == selected?.id }) { config in Text(config.name + (config.enabled ? "" : "（已禁用）")).tag(Optional(config.id)) }
+                    ForEach(registry.configurations.filter { $0.enabled && $0.textCapable || $0.id == selected?.id }) { config in Text(config.name + " · " + config.execution.title + (config.enabled ? "" : "（已禁用）")).tag(Optional(config.id)) }
                 }
             }
             if let config = selected {

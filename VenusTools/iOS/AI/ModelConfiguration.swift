@@ -121,6 +121,7 @@ enum ModelValidation {
                 guard url.scheme == "https" || !config.requiresKey else { throw ModelFailure("使用密钥的局域网服务必须启用 HTTPS") }
             } else if url.scheme != "https" { throw ModelFailure("第三方服务必须使用 HTTPS") }
             if config.execution == .lanService && config.adapter != .openAI { throw ModelFailure("局域网服务当前使用 Chat Completions 兼容协议") }
+            if config.adapter == .gemini, config.modelID.range(of: "^[A-Za-z0-9._-]+$", options: .regularExpression) == nil { throw ModelFailure("Gemini 模型标识只填名称，不包含 models/ 或其他路径") }
             if config.adapter == .anthropic, config.apiVersion.range(of: "^\\d{4}-\\d{2}-\\d{2}$", options: .regularExpression) == nil { throw ModelFailure("API 版本需为 yyyy-MM-dd 格式") }
             if config.adapter != .openAI && !config.requiresKey { throw ModelFailure("此协议需要 API Key") }
         }

@@ -66,6 +66,8 @@ final class ModelConfigurationTests: XCTestCase {
         XCTAssertEqual(geminiRequest.url?.path, "/v1beta/models/gemini-test:generateContent")
         XCTAssertEqual(geminiRequest.value(forHTTPHeaderField: "x-goog-api-key"), "test-secret")
         let g = try body(gemini); XCTAssertNotNil(g["contents"]); XCTAssertNotNil(g["systemInstruction"]); XCTAssertNil(g["messages"])
+        var invalidGemini = gemini; invalidGemini.modelID = "models/gemini-test"
+        XCTAssertThrowsError(try ModelValidation.validate(invalidGemini, among: []))
     }
     func testMalformedEmptyHTTPErrorAndTruncatedResponsesFail() throws {
         let config = remote()
