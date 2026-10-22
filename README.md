@@ -23,9 +23,12 @@
 
 ## GitHub Actions 云端构建
 
-仓库包含 `.github/workflows/build.yml`。推送到 `main`、`master` 或 `codex/task-module`、创建 Pull Request，或在 Actions 中手动运行 `Build iOS package`，都会使用 GitHub 提供的 macOS runner 构建 iPhone 应用和 Apple Watch 配套应用，并生成 `VenusTools-unsigned.ipa`。构建完成后，可在该次 Actions 运行的 Artifacts 区域下载 `VenusTools-unsigned-ipa`。
+仓库包含 `.github/workflows/build.yml`。推送到 `main`、`master` 或 `codex/task-module`、创建 Pull Request，或在 Actions 中手动运行 `Build iOS package`，都会使用 GitHub 提供的 macOS runner 构建 iPhone 应用和 Apple Watch 配套应用。构建完成后，在该次 Actions 运行的 Artifacts 区域选择：
 
-这个 IPA 未签名，适合检查打包产物；安装到真机或通过 TestFlight 分发仍需 Apple 开发者签名与相应配置。
+- `VenusTools-iPhone-only-unsigned-ipa`：手机安装入口，内含 `VenusTools-iPhone-only-unsigned.ipa`，供 AltServer / AltStore 重新签名；已移除 Watch 子包。
+- `VenusTools-iPhone-Watch-unsigned-ipa`：完整包结构检查，内含 `VenusTools-iPhone-Watch-unsigned.ipa`；当前不作为 AltServer 安装入口。
+
+两份 IPA 都未签名，不能直接安装。包含 Watch 的旧包存在用户反馈的 AltServer 崩溃，本次拆包尚未实测 AltServer 安装。手表开发版使用 Mac + Xcode 对手机与手表应用统一签名并运行，具体见[安装约定与手表安装步骤](docs/development/task-module.md#安装包与-apple-watch-安装约定2026-10-22)。只安装手机版仍可使用系统通知镜像，手表任务列表与完成操作需安装配套应用。
 
 ## 当前实现
 

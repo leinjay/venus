@@ -24,6 +24,9 @@ jobs:
       - name: Test task data rules
         run: swift test
 
+      - name: Test iPhone-only packaging
+        run: python3 -m unittest discover -s Tests/Packaging -v
+
       - name: Build iOS app and Watch companion
         run: >-
           xcodebuild
@@ -35,7 +38,7 @@ jobs:
           CODE_SIGNING_ALLOWED=NO
           build
 
-      - name: Package unsigned IPA
+      - name: Package complete iPhone and Watch IPA
         run: |
           APP_PATH="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos/VenusTools.app"
           test -d "$APP_PATH"
@@ -43,11 +46,24 @@ jobs:
           test -f "$APP_PATH/mlx-swift_Cmlx.bundle/default.metallib"
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/VenusTools.app
-          /usr/bin/ditto -c -k --sequesterRsrc --keepParent Payload VenusTools-unsigned.ipa
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent Payload VenusTools-iPhone-Watch-unsigned.ipa
 
-      - name: Upload IPA artifact
+      - name: Package iPhone-only IPA for sideloading
+        run: >-
+          python3 scripts/package_iphone_only.py
+          VenusTools-iPhone-Watch-unsigned.ipa
+          VenusTools-iPhone-only-unsigned.ipa
+
+      - name: Upload iPhone-only IPA
         uses: actions/upload-artifact@v4
         with:
-          name: VenusTools-unsigned-ipa
-          path: VenusTools-unsigned.ipa
+          name: VenusTools-iPhone-only-unsigned-ipa
+          path: VenusTools-iPhone-only-unsigned.ipa
+          if-no-files-found: error
+
+      - name: Upload complete iPhone and Watch IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: VenusTools-iPhone-Watch-unsigned-ipa
+          path: VenusTools-iPhone-Watch-unsigned.ipa
           if-no-files-found: error

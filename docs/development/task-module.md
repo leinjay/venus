@@ -35,3 +35,29 @@ Watch 快照超过 40 KB 时通过文件传输，不截断任务；完成操作�
 - 通过分支推送触发 macOS 构建 iPhone 与 Watch 配套应用，产出未签名 IPA。真实运行需要 Apple 开发者签名；未签名 IPA不能直接作为真机安装包。
 - 打包阶段额外检查手机包内的 Watch 应用与 MLX Metal 资源，不能只检查两个目标各自编译成功。原型的 Watch 嵌入目录为空，本轮修正到手机包的 `Watch/`，并使用单目标 watchOS 应用的 `WKApplication` 标识。
 - 本轮尚未测得需求文档中的 AI 准确率、推理延迟或设备内存结果；系统语音可用性、本地网络与系统权限、通知呈现、手表后台传输仍须在对应设备上验证。
+
+## 安装包与 Apple Watch 安装约定（2026-10-22）
+
+用户反馈包含 Watch 子包的 IPA 在 AltServer 传输时导致崩溃。此前只验证了编译和包结构，没有验证 AltServer 侧载；目前也没有崩溃堆栈，不能确定其内部失败原因。为隔离这项兼容问题，云端始终编译完整工程，再提供两份名称明确的产物：
+
+| Actions 产物 | 内含文件 | 用途 |
+| --- | --- | --- |
+| `VenusTools-iPhone-only-unsigned-ipa` | `VenusTools-iPhone-only-unsigned.ipa` | 供 AltServer / AltStore 对 iPhone 应用重新签名并安装；不含 Watch 应用。 |
+| `VenusTools-iPhone-Watch-unsigned-ipa` | `VenusTools-iPhone-Watch-unsigned.ipa` | 保留完整 iPhone 与 Watch 结构供检查；不作为当前 AltServer 安装入口。 |
+
+两份 IPA 均未签名，不能直接安装。完整应用的真机开发安装走下方 Xcode 流程；不能把“未签名的完整 IPA”当作可直接传给手表的安装文件。AltStore 官方仓库的 [Apple Watch 重签名支持问题 #229](https://github.com/altstoreio/AltStore/issues/229) 仍未关闭；这不证明所有当前版本都失败，也不足以保证本项目能通过 AltServer 安装 Watch 应用。
+
+iPhone-only 产物由 `scripts/package_iphone_only.py` 从完整 IPA 派生，移除 `Watch/`、WatchKit 支持文件及其他识别出的 watchOS 子包，保留手机程序、iOS 扩展、文件权限与 MLX Metal 资源。回归测试校验移除范围、保留内容、源文件保护及重复打包；流水线仍要求完整包内存在 Watch 应用。源码与 Watch 目标继续保留。手机会区分“未配对手表”和“手表任务应用尚未安装”，避免误报正在同步。
+
+### 给手表安装开发版
+
+1. 使用 Mac 上的 Xcode 打开 `VenusTools.xcodeproj`。在 `VenusTools` 与 `VenusToolsWatch` 两个目标的 Signing & Capabilities 中选择同一个开发团队并开启自动签名。
+2. 如需改成自己的唯一 Bundle ID，手机例如使用 `com.yourname.VenusTools`，手表使用 `com.yourname.VenusTools.watchkitapp`；同时把 Watch 的 `WKCompanionAppBundleIdentifier` 改成手机的 ID，Debug 与 Release 保持一致。不要混用被侧载工具改过 ID 的手机包和仍指向原 ID 的 Watch 包。
+3. 将已配对 Apple Watch 的 iPhone 连接 Mac，解锁并信任电脑，按系统提示启用手机和手表的开发者模式，等待 Xcode 完成设备准备。
+4. 先选择 `VenusTools` scheme，在这台 iPhone 上运行；再选择 `VenusToolsWatch` scheme，以配对的 Apple Watch 为运行目标并运行。Xcode 完成签名和安装后，在手表上检查任务列表、完成操作与手机同步。
+
+依据：[Apple 的真机运行步骤](https://help.apple.com/xcode/mac/current/en.lproj/dev5a825a1ca.html)、[watchOS 工程与配套 Bundle ID 约束](https://developer.apple.com/documentation/technotes/tn3157-updating-your-watchos-project-for-swiftui-and-widgetkit)。当前 Windows 环境没有已验证的 Watch 开发版安装路线，也不能代替 Xcode 完成以上验证。
+
+只安装 iPhone-only 版时，没有手表上的任务列表与完成操作；手机已获准发送的通知仍可由系统转发到配对手表，无须先安装 watchOS 应用，具体显示取决于通知镜像设置与设备状态，见 [Apple 的 watchOS 通知说明](https://developer.apple.com/documentation/watchOS-Apps/notifications)。这与 WatchConnectivity 数据同步是两条不同的能力。
+
+验证边界：打包测试及云端编译可以验证两份产物结构，不能代替 AltServer、签名、手机通知或手表同步的实机验收。本次调整尚未实测 AltServer 安装。

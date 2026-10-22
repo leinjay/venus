@@ -211,7 +211,9 @@ final class ReminderStore: NSObject, ObservableObject, WCSessionDelegate, UNUser
     }
     private func publishSnapshot() {
         guard WCSession.isSupported(), session.activationState == .activated else { return }
-        do { try session.updateApplicationContext(snapshotContext()); syncMessage = session.isPaired ? "已保存 · 等待手表接收" : "已保存 · 等待配对手表" }
+        guard session.isPaired else { syncMessage = "已保存 · 等待配对手表"; return }
+        guard session.isWatchAppInstalled else { syncMessage = "已保存 · 手表任务应用尚未安装"; return }
+        do { try session.updateApplicationContext(snapshotContext()); syncMessage = "已保存 · 等待手表接收" }
         catch { syncMessage = "已保存 · 手表同步待重试" }
     }
     private func receive(_ context: [String: Any]) -> [String: Any] {
@@ -254,6 +256,7 @@ final class ReminderStore: NSObject, ObservableObject, WCSessionDelegate, UNUser
         DispatchQueue.main.async { let reply = self.receive(userInfo); session.transferUserInfo(reply) }
     }
     func sessionReachabilityDidChange(_ session: WCSession) { DispatchQueue.main.async { self.publishSnapshot() } }
+    func sessionWatchStateDidChange(_ session: WCSession) { DispatchQueue.main.async { self.publishSnapshot() } }
     func session(_ session: WCSession, didFinish fileTransfer: WCSessionFileTransfer, error: Error?) {
         guard fileTransfer.file.metadata?["kind"] as? String == "taskSnapshot" else { return }
         try? FileManager.default.removeItem(at: fileTransfer.file.fileURL)
