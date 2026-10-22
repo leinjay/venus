@@ -34,6 +34,9 @@ struct ContentView: View {
                 Label("清单", systemImage: "checklist")
             }
             .tag(3)
+            SettingsView()
+                .tabItem { Label("设置", systemImage: "gearshape") }
+                .tag(4)
         }
         .onChange(of: reminderStore.notificationTaskID) { _, id in if id != nil { selectedTab = 0 } }
         .tint(AppTheme.pine)

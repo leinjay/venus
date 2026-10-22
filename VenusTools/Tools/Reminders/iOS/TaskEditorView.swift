@@ -4,7 +4,6 @@ import UniformTypeIdentifiers
 
 struct TaskEditorView: View {
     @ObservedObject var store: ReminderStore
-    @ObservedObject private var model = LocalQwenService.shared
     @StateObject private var voice = TaskVoiceInput()
     @State private var draft: TaskDraft
     @State private var restorable: TaskDraft?
@@ -119,7 +118,7 @@ struct TaskEditorView: View {
     private var conversation: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                QwenModelPanel()
+                ModelBindingPanel(purpose: .dialogue).surfaceCard(padding: 14)
                 Text("用文字、语音或图片中的文字描述一件事。AI 整理后可切换表单检查，点击保存才创建或更新任务。")
                     .font(.subheadline).foregroundStyle(AppTheme.secondary)
                 ForEach(draft.messages) { message in
@@ -166,7 +165,7 @@ struct TaskEditorView: View {
                         Button("粘贴图片") { if let image = UIPasteboard.general.image, let data = image.jpegData(compressionQuality: 0.9) { do { try addImage(data) } catch { self.error = error.localizedDescription } } else { error = "剪贴板中没有可用图片" } }
                     } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel("拍摄或粘贴图片")
                     Spacer()
-                    Button("整理任务", action: submit).buttonStyle(.borderedProminent).disabled(processing || model.generating || voice.recording || (draft.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && pendingImages.isEmpty))
+                    Button("整理任务", action: submit).buttonStyle(.borderedProminent).disabled(processing || voice.recording || (draft.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && pendingImages.isEmpty))
                 }.buttonStyle(.bordered)
                 Text("\(draft.input.count) / 2,000 字 · 录音最多 2 分钟").font(.caption).foregroundStyle(AppTheme.secondary)
             }.padding()

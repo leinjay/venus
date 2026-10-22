@@ -15,11 +15,11 @@ actor LocalQwenEngine {
     private var container: ModelContainer?
     private var busy = false
     func unload() { container = nil }
-    func respond(directory: URL, system: String, prompt: String, timeout: TimeInterval = 60) async throws -> String {
+    func respond(directory: URL, system: String, prompt: String, generation: ModelGeneration = ModelGeneration(), timeout: TimeInterval = 60) async throws -> String {
         guard !busy else { throw TaskFailure("另一项 AI 操作正在处理，请稍后重试") }
         busy = true; defer { busy = false }
         let deadline = Date().addingTimeInterval(timeout)
-        if container == nil { container = try await LLMModelFactory.shared.loadContainer(configuration: ModelConfiguration(directory: directory)) }
+        if container == nil { container = try await LLMModelFactory.shared.loadContainer(configuration: MLXLMCommon.ModelConfiguration(directory: directory)) }
         try Task.checkCancellation()
         guard let container else { throw TaskFailure("模型加载失败") }
         let result = try await container.perform { context in
@@ -27,15 +27,19 @@ actor LocalQwenEngine {
                 ["role": "system", "content": system], ["role": "user", "content": prompt]
             ], additionalContext: ["enable_thinking": false]))
             guard input.text.tokens.size <= 6000 else { throw TaskFailure("模型上下文过长，请缩短输入或具体内容") }
-            let result: GenerateResult = try MLXLMCommon.generate(input: input, parameters: GenerateParameters(maxTokens: 1800, temperature: 0.2, topP: 0.9), context: context) { (_: [Int]) -> GenerateDisposition in
+            let maximum = generation.maxTokens ?? 1800
+            let parameters = GenerateParameters(maxTokens: maximum, temperature: Float(generation.temperature ?? 0.2), topP: Float(generation.topP ?? 0.9), repetitionPenalty: generation.repetitionPenalty)
+            let result: GenerateResult = try MLXLMCommon.generate(input: input, parameters: parameters, context: context) { (_: [Int]) -> GenerateDisposition in
                 Task.isCancelled || Date() >= deadline ? .stop : .more
             }
             try Task.checkCancellation()
             guard Date() < deadline else { throw TaskFailure("AI 处理超时，输入已保留") }
-            guard result.generationTokenCount < 1800 else { throw TaskFailure("模型输出过长或被截断，请分次补充") }
+            guard result.generationTokenCount < maximum else { throw TaskFailure("模型输出过长或被截断，请分次补充") }
             return result.output
         }
-        return Self.clean(result)
+        let cleaned = Self.clean(result)
+        guard !cleaned.isEmpty else { throw TaskFailure("模型返回了空结果，请重试") }
+        return cleaned
     }
     private static func clean(_ text: String) -> String {
         var result = text
@@ -163,10 +167,10 @@ final class LocalQwenService: ObservableObject {
             } catch { return false }
         }.value
     }
-    func respond(system: String, prompt: String) async throws -> String {
+    func respond(system: String, prompt: String, generation: ModelGeneration = ModelGeneration(), timeout: TimeInterval = 60) async throws -> String {
         guard ready else { throw TaskFailure("请先准备本机 Qwen3 模型，或使用属性表单") }
         guard !generating, !preparing else { throw TaskFailure("模型正在处理另一项操作") }
         generating = true; defer { generating = false }
-        return try await engine.respond(directory: directory, system: system, prompt: prompt)
+        return try await engine.respond(directory: directory, system: system, prompt: prompt, generation: generation, timeout: timeout)
     }
 }

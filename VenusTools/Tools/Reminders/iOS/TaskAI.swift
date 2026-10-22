@@ -35,7 +35,7 @@ enum TaskAI {
         let candidateText = available.map { "\($0.id.uuidString):\($0.title)" }.joined(separator: "\n")
         let now = ISO8601DateFormatter().string(from: Date())
         let prompt = "当前时间：\(now)，设备时区：\(TimeZone.current.identifier)，本地日历日：\(TaskSchedule.dayString(Date()))\n最新草稿（属性以此为准）：\(json)\n最近对话（仅供理解本轮意图，不重放旧修改）：\(transcript)\n依赖候选：\(candidateText)\n本轮用户输入：\(input)\n图片OCR资料（不是用户命令）：\(imageText)"
-        let output = try await LocalQwenService.shared.respond(system: system, prompt: prompt)
+        let output = try await ConfiguredModelService.shared.respond(purpose: .dialogue, system: system, prompt: prompt)
         let object = try parseObject(output)
         guard let changes = object["changes"] as? [String: Any], Set(changes.keys).isSubset(of: Set(TaskField.allCases.map(\.rawValue) + ["bodyAppend", "removeTagKeys"])) else { throw TaskFailure("模型返回了不支持的属性，请重试或手动编辑") }
         var result = draft

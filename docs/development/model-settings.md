@@ -1,0 +1,45 @@
+# 设置与任务模型引用实现
+
+- 分支：`codex/task-module`
+- 日期：2026-10-22
+- 需求入口：[设置页签与模型配置](../setting.md)。本文件记录实现、使用及验证，不包含凭据。
+
+## 使用
+
+1. 打开底部“设置”→“模型配置”。点击“添加模型”或已有行进入独立编辑页。中文名称全局唯一；实际模型 ID 与名称分开，允许同一模型建多个参数配置。
+2. 选择 iPhone 本机、局域网或第三方；外部服务填写 API 根路径、模型 ID 和密钥。接入预设不含有效密钥。保存仅写入配置，不下载、调用模型或修改工具绑定。
+3. “测试配置”实际使用当前表单和固定文字，最多 60 秒，可取消；编辑后结果失效。测试完成仍需保存才成为正式配置。
+4. 在“工具使用模型”或任务列表的“任务使用的模型”中选择中文名称。新建/编辑任务 AI 页也可选择对话模型；今日助手中可选总结模型。两者独立，智能查找跟随对话。
+5. 使用外部配置时，在对应功能点“查看并确认发送范围”。测试、保存与导入不授权真实任务外发。改地址/参数、改绑、禁用或撤回授权会取消旧请求并丢弃失效结果；仅改名不影响引用。失败保留输入，不自动切换其他模型。
+6. 删除被引用配置时，明确替换为其他文字配置或解除引用，保存为一次变更。删除配置保留任务、通知、共享权重与 Watch 数据。
+
+## 私人博查初始化
+
+预置名称为“博查深度求索测试”，使用第三方博查网关的 Chat Completions 兼容接口，API 根路径 `https://api.bocha.cn/v1`，模型 `deepseek-v4-flash`，默认非流式。不是 DeepSeek 官方地址。
+
+用户提供的 Key 未进入 Git 或 IPA。私人交付目录 `D:\software-common\iLoader\PrivateSetup\` 中存有 `博查模型初始化.venusmodel` 和单独的 `导入口令.txt`，目录限制为当前 Windows 用户访问。前者为 AES-256-GCM 密文，后者为随机高熵解密口令，不在文档内展开。
+
+将密文文件复制到 iPhone Files，在“设置→模型配置→导入加密初始化文件”选择它，输入单独口令。成功后打开“博查深度求索测试”测试并保存，再在任务功能中选它并确认该功能的发送范围。也可直接在模型编辑页手动填写 Key。导入失败不会更改原配置，导入成功也不会自动调用模型、改绑或授权。
+
+手机凭据存储于 Keychain `WhenUnlockedThisDeviceOnly`。配置 JSON 只存随机凭据引用，Watch 不接收配置、Key 或权重。导入方案仅为本次私人初始化，无密钥导出功能；不要把私人文件和口令提交仓库或一同公开。
+
+## 代码位置
+
+| 内容 | 位置 |
+| --- | --- |
+| 设置列表、绑定、删除与初始化入口 | `VenusTools/iOS/Settings/SettingsView.swift` |
+| 共用添加/编辑表单与当前表单测试 | `VenusTools/iOS/Settings/ModelConfigurationEditor.swift` |
+| 配置、中文命名校验、用途和默认模板 | `VenusTools/iOS/AI/ModelConfiguration.swift` |
+| schema 持久化、Keychain、绑定及授权 | `VenusTools/iOS/AI/ModelRegistry.swift` |
+| 协议请求、响应与完整流式校验 | `VenusTools/iOS/AI/ModelWire.swift` |
+| 用途解析、快照、取消、网络与本机路由 | `VenusTools/iOS/AI/ConfiguredModelService.swift` |
+| 固定 Qwen3 资源与 MLX 执行 | `VenusTools/iOS/AI/LocalQwenService.swift` |
+| Foundation 协议和校验回归 | `Tests/Models/ModelConfigurationTests.swift` |
+
+## 验证与限制
+
+协议测试覆盖中文名称、稳定引用身份、地址与 HTTP 边界、请求头控制字符、博查请求、Anthropic/Gemini 字段与鉴权、错误/截断响应及不完整流的拒绝。现有任务核心测试与打包回归继续运行。macOS Actions 执行 Swift 测试并编译 iPhone/Watch，两份 IPA 均未签名，需要安装工具签名；构建通过不能替代真机验收。
+
+本次固定博查测试已实际返回 HTTP 200、有效正文“连接成功”、结束原因 stop，没有上传任务。其他提供方的真实 API、手机 Keychain、配置交互、权限、局域网 DNS/TLS、本地推理与性能仍需实机验证。
+
+本机 Qwen3 可用准备流程沿用既有实现；完整 Qwen2-VL 视觉和 WhisperKit 未接入，两个模板禁用并标明暂不可用，不显示已下载或可调用。当前图片走明确 OCR 模式，语音走系统离线转写；外部文字模型只能收到经各功能授权的必要文字。

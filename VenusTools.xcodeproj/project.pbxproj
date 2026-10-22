@@ -34,6 +34,12 @@
 		B20000000000000000000D00 /* LocalQwenService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8000000000000000000000D; };
 		B90000000000000000000001 = {isa = PBXBuildFile; productRef = A90000000000000000000002; };
 		B90000000000000000000002 = {isa = PBXBuildFile; productRef = A90000000000000000000003; };
+		B91000000000000000000001 /* ModelConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A91000000000000000000001; };
+		B91000000000000000000002 /* ModelWire.swift in Sources */ = {isa = PBXBuildFile; fileRef = A91000000000000000000002; };
+		B91000000000000000000003 /* ModelRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A91000000000000000000003; };
+		B91000000000000000000004 /* ConfiguredModelService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A91000000000000000000004; };
+		B91000000000000000000005 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A91000000000000000000005; };
+		B91000000000000000000006 /* ModelConfigurationEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A91000000000000000000006; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -83,6 +89,12 @@
 		A8000000000000000000000B /* WatchTaskStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Watch/WatchTaskStore.swift"; sourceTree = "<group>"; };
 		A8000000000000000000000C /* WatchTaskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Watch/WatchTaskView.swift"; sourceTree = "<group>"; };
 		A8000000000000000000000D /* LocalQwenService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "../../iOS/AI/LocalQwenService.swift"; sourceTree = "<group>"; };
+		A91000000000000000000001 /* ModelConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AI/ModelConfiguration.swift"; sourceTree = "<group>"; };
+		A91000000000000000000002 /* ModelWire.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AI/ModelWire.swift"; sourceTree = "<group>"; };
+		A91000000000000000000003 /* ModelRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AI/ModelRegistry.swift"; sourceTree = "<group>"; };
+		A91000000000000000000004 /* ConfiguredModelService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AI/ConfiguredModelService.swift"; sourceTree = "<group>"; };
+		A91000000000000000000005 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Settings/SettingsView.swift"; sourceTree = "<group>"; };
+		A91000000000000000000006 /* ModelConfigurationEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Settings/ModelConfigurationEditor.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -124,6 +136,12 @@
 		A20000000000000000000003 /* iOS */ = {
 			isa = PBXGroup;
 			children = (
+				A91000000000000000000001 /* ModelConfiguration.swift */,
+				A91000000000000000000002 /* ModelWire.swift */,
+				A91000000000000000000003 /* ModelRegistry.swift */,
+				A91000000000000000000004 /* ConfiguredModelService.swift */,
+				A91000000000000000000005 /* SettingsView.swift */,
+				A91000000000000000000006 /* ModelConfigurationEditor.swift */,
 				A20000000000000000000007 /* App */,
 				A20000000000000000000008 /* Stores */,
 				A20000000000000000000009 /* Views */,
@@ -286,6 +304,12 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B91000000000000000000001 /* ModelConfiguration.swift in Sources */,
+				B91000000000000000000002 /* ModelWire.swift in Sources */,
+				B91000000000000000000003 /* ModelRegistry.swift in Sources */,
+				B91000000000000000000004 /* ConfiguredModelService.swift in Sources */,
+				B91000000000000000000005 /* SettingsView.swift in Sources */,
+				B91000000000000000000006 /* ModelConfigurationEditor.swift in Sources */,
 				B20000000000000000000100 /* TaskModel.swift in Sources */,
 				B20000000000000000000200 /* TaskRules.swift in Sources */,
 				B20000000000000000000300 /* TaskStore.swift in Sources */,
@@ -368,10 +392,12 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Venus;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "连接你主动配置的局域网模型服务";
+				INFOPLIST_FILE = VenusTools/iOS/App/Info.plist;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "用于将语音输入转换为任务文字";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "仅使用设备本机语音识别整理任务";
 				INFOPLIST_KEY_NSCameraUsageDescription = "用于拍摄任务资料并在本机提取文字";
@@ -395,10 +421,12 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Venus;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "连接你主动配置的局域网模型服务";
+				INFOPLIST_FILE = VenusTools/iOS/App/Info.plist;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "用于将语音输入转换为任务文字";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "仅使用设备本机语音识别整理任务";
 				INFOPLIST_KEY_NSCameraUsageDescription = "用于拍摄任务资料并在本机提取文字";
@@ -422,7 +450,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Venus;
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.venus.VenusTools;
@@ -444,7 +472,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Venus;
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.venus.VenusTools;

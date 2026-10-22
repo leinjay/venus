@@ -34,7 +34,7 @@ struct TaskTodayView: View {
             if !overdue.isEmpty { Section("此前逾期 · \(overdue.count)") { ForEach(overdue) { row($0) } } }
             if !unplanned.isEmpty { Section { DisclosureGroup("未安排 · \(unplanned.count) 项") { ForEach(unplanned) { row($0) } } } }
             if !completed.isEmpty { Section { DisclosureGroup("今天已完成 · \(completed.count) 项") { ForEach(completed) { row($0) } } } }
-            Section { QwenModelPanel() }
+            Section { ModelBindingPanel(purpose: .summary) }
         }.navigationTitle("今天要做的事").toolbar { ToolbarItem(placement: .confirmationAction) { Button("关闭") { dismiss() } } }
         .task { generate() }
         .onChange(of: store.revision) { _, _ in now = Date(); cancel(); stale = true }
@@ -57,7 +57,7 @@ struct TaskTodayView: View {
         generating = true
         request = Task {
             do {
-                let output = try await LocalQwenService.shared.respond(system: "只归纳给出的真实任务，不猜测新任务或完成状态，不改动数据。只输出JSON：{\"items\":[{\"id\":\"原始任务UUID\",\"summary\":\"简短行动要点\"}]}。保留原顺序，每个输入任务恰好出现一次，不重新估算数量。", prompt: input)
+                let output = try await ConfiguredModelService.shared.respond(purpose: .summary, system: "只归纳给出的真实任务，不猜测新任务或完成状态，不改动数据。只输出JSON：{\"items\":[{\"id\":\"原始任务UUID\",\"summary\":\"简短行动要点\"}]}。保留原顺序，每个输入任务恰好出现一次，不重新估算数量。", prompt: input)
                 let object = try TaskAI.parseObject(output)
                 guard let entries = object["items"] as? [[String: String]], entries.count == selected.count else { throw TaskFailure("总结内容不完整，请查看下方完整清单或重试") }
                 let ids = entries.compactMap { $0["id"].flatMap(UUID.init(uuidString:)) }

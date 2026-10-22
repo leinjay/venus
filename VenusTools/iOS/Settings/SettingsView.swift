@@ -1,0 +1,158 @@
+import SwiftUI
+import UniformTypeIdentifiers
+
+struct SettingsView: View {
+    @ObservedObject private var registry = ModelRegistry.shared
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    NavigationLink { ModelListView() } label: {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Label("模型配置", systemImage: "cpu")
+                            Text("\(registry.configurations.count) 个具名配置 · 供各工具引用").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    NavigationLink("工具使用模型") { ModelBindingsView() }
+                } footer: { Text("默认使用手机本机模型。局域网或第三方模型需自行配置，并按功能确认发送范围。") }
+                if let error = registry.storageError { Section { Text(error).foregroundStyle(.red) } }
+            }.navigationTitle("设置")
+        }
+    }
+}
+
+struct ModelListView: View {
+    @ObservedObject private var registry = ModelRegistry.shared
+    @ObservedObject private var local = LocalQwenService.shared
+    @State private var adding = false
+    @State private var deleting: ModelConfiguration?
+    @State private var importer = false
+    @State private var importData: Data?
+    @State private var importPassword = ""
+    @State private var importSheet = false
+    @State private var importError: String?
+    @State private var message: String?
+    var body: some View {
+        List {
+            Section {
+                NavigationLink("添加模型", isActive: $adding) { ModelConfigurationEditor() }
+                NavigationLink("工具使用模型") { ModelBindingsView() }
+                Button("导入加密初始化文件") { importer = true }
+            }
+            Section("已保存模型 · \(registry.configurations.count)") {
+                if registry.configurations.isEmpty { Text("添加第一个具名配置，工具即可按名称选择。") }
+                ForEach(registry.configurations) { config in
+                    NavigationLink { ModelConfigurationEditor(configuration: config) } label: {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(config.name).font(.headline)
+                            Text("\(config.execution.title) · \(config.provider)").font(.caption)
+                            Text(config.modelID).font(.caption2).foregroundStyle(.secondary)
+                            Text("\(registry.status(config)) · \(config.textCapable ? "文字" : "图片或语音模板") · \(registry.references(config.id).count) 个功能引用").font(.caption2).foregroundStyle(.secondary)
+                            if let test = config.validTest { Text("最近测试 \(test.date.formatted())").font(.caption2).foregroundStyle(.secondary) }
+                        }
+                    }.swipeActions { Button("删除", role: .destructive) { deleting = config } }
+                }
+            }
+            Section("本机模型资源") {
+                QwenModelPanel()
+                Text("图片理解和 WhisperKit 模板暂不可启用。当前任务图片可明确选择本机 OCR，语音使用系统离线识别；不会把它们标成视觉模型或 Whisper 已就绪。").font(.caption).foregroundStyle(.secondary)
+                Text("Qwen3 固定版本：\(LocalQwenService.revision)\n运行库 MLX Swift examples 2.25.9；多个文字配置共享这一份权重，生成参数分别保存。").font(.caption2).textSelection(.enabled)
+            }
+        }.navigationTitle("模型配置")
+            .sheet(item: $deleting) { ModelDeleteView(configuration: $0) }
+            .fileImporter(isPresented: $importer, allowedContentTypes: [.data, .json]) { result in
+                do {
+                    let url = try result.get(), granted = url.startAccessingSecurityScopedResource()
+                    defer { if granted { url.stopAccessingSecurityScopedResource() } }
+                    guard (try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 100_001) <= 100_000 else { throw ModelFailure("初始化文件过大") }
+                    importData = try Data(contentsOf: url); importPassword = ""; importError = nil; importSheet = true
+                } catch { message = "无法读取初始化文件，请重新选择" }
+            }
+            .sheet(isPresented: $importSheet, onDismiss: { importData = nil; importPassword = "" }) {
+                NavigationStack { Form {
+                    Text("此文件用于本次私人初始化。导入后密钥只写入手机 Keychain，不改变任何工具的模型选择或外发授权。")
+                    SecureField("初始化口令", text: $importPassword).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    Button("解密并导入") {
+                        do {
+                            guard let bytes = importData else { return }
+                            try registry.importSetup(bytes, passphrase: importPassword)
+                            importSheet = false; message = "模型凭据已导入。请打开配置测试，再为所需工具选择模型。"
+                        } catch { importError = error.localizedDescription }
+                    }
+                    if let importError { Text(importError).foregroundStyle(.red) }
+                }.navigationTitle("导入初始化").toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { importSheet = false } } } }
+            }
+            .alert("模型配置", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) { Button("知道了") { message = nil } } message: { Text(message ?? "") }
+    }
+}
+
+private struct ModelDeleteView: View {
+    let configuration: ModelConfiguration
+    @ObservedObject private var registry = ModelRegistry.shared
+    @Environment(\.dismiss) private var dismiss
+    @State private var replacement: UUID?
+    @State private var error: String?
+    var body: some View {
+        NavigationStack { Form {
+            Text("删除“\(configuration.name)”？模型资源、任务和已保存文本会保留，专属凭据会从手机清理。")
+            let references = registry.references(configuration.id)
+            if !references.isEmpty {
+                Text("正在引用：\(references.map(\.title).joined(separator: "、"))；智能查找跟随对话。")
+                Picker("引用处理", selection: $replacement) {
+                    Text("解除以上引用").tag(UUID?.none)
+                    ForEach(registry.configurations.filter { $0.id != configuration.id && $0.enabled && $0.textCapable }) { Text($0.name).tag(Optional($0.id)) }
+                }
+            }
+            if let error { Text(error).foregroundStyle(.red) }
+            Button("确认删除", role: .destructive) {
+                do { try registry.delete(configuration, replacingWith: replacement); dismiss() }
+                catch { self.error = error.localizedDescription }
+            }
+        }.navigationTitle("删除模型配置").toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } } }
+    }
+}
+
+struct ModelBindingsView: View {
+    var body: some View {
+        List {
+            Section { ModelBindingPanel(purpose: .dialogue); ModelBindingPanel(purpose: .summary); ModelBindingPanel(purpose: .search) }
+            Section { Text("模型改名后引用保持有效；禁用、删除或调用参数变更后，旧请求会停止。配置测试仅使用固定样本，不代表已授权发送任务。").font(.caption).foregroundStyle(.secondary) }
+        }.navigationTitle("工具使用模型")
+    }
+}
+
+struct ModelBindingPanel: View {
+    let purpose: ModelPurpose
+    @ObservedObject private var registry = ModelRegistry.shared
+    @State private var consent = false
+    @State private var error: String?
+    private var selected: ModelConfiguration? { registry.selected(purpose) }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text(purpose.title + "模型").font(.headline)
+            if purpose == .search { Text("跟随 AI 对话：\(selected?.name ?? "未配置")").font(.subheadline) }
+            else {
+                Picker("模型", selection: Binding(get: { selected?.id }, set: { id in
+                    do { try registry.bind(id, to: purpose) } catch { self.error = error.localizedDescription }
+                })) {
+                    Text("未配置").tag(UUID?.none)
+                    ForEach(registry.configurations.filter { $0.enabled && $0.textCapable || $0.id == selected?.id }) { config in Text(config.name + (config.enabled ? "" : "（已禁用）")).tag(Optional(config.id)) }
+                }
+            }
+            if let config = selected {
+                Text("\(config.execution.title) · \(registry.status(config))").font(.caption).foregroundStyle(.secondary)
+                if config.execution != .onDevice {
+                    Text("目标：\(config.destination)").font(.caption).textSelection(.enabled)
+                    if registry.authorized(purpose, config: config) {
+                        Button("撤回本功能外发授权", role: .destructive) { do { try registry.setAuthorization(false, purpose: purpose) } catch { self.error = error.localizedDescription } }.font(.caption)
+                    } else { Button("查看并确认发送范围") { consent = true }.font(.caption) }
+                }
+            }
+            NavigationLink("管理模型配置") { ModelListView() }.font(.caption)
+            if let error { Text(error).font(.caption).foregroundStyle(.red) }
+        }.padding(.vertical, 6)
+            .confirmationDialog("允许\(purpose.title)发送到 \(selected?.name ?? "")（\(selected?.destination ?? "")）？", isPresented: $consent, titleVisibility: .visible) {
+                Button("允许本功能使用此配置") { do { try registry.setAuthorization(true, purpose: purpose) } catch { self.error = error.localizedDescription } }
+            } message: { Text(purpose.disclosure + "\n服务费用和数据保留由服务商决定。修改目标、模型或协议后需重新确认。") }
+    }
+}

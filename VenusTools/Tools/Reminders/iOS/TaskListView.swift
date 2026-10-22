@@ -79,6 +79,11 @@ struct RemindersView: View {
                         if searching { ProgressView() }
                         Button("智能查找") { intelligentSearch() }.font(.subheadline).disabled(searching || query.isEmpty)
                     }
+                    DisclosureGroup("任务使用的模型") {
+                        ModelBindingPanel(purpose: .dialogue)
+                        ModelBindingPanel(purpose: .summary)
+                        ModelBindingPanel(purpose: .search)
+                    }.font(.subheadline).surfaceCard(padding: 14)
                     if filtered.isEmpty {
                         ContentUnavailableView(store.reminders.isEmpty ? "从一件小事开始" : "没有匹配任务", systemImage: "tray", description: Text(store.reminders.isEmpty ? "点击右上角添加任务，用对话或表单记录。" : "试试其他关键词或清除过滤条件。"))
                     } else {
@@ -153,7 +158,7 @@ struct RemindersView: View {
         searching = true
         searchTask = Task {
             do {
-                let output = try await LocalQwenService.shared.respond(system: "解析任务查询，不执行操作。只输出JSON：{\"keywords\":\"主题关键词，可为空\",\"status\":0未完成或1已完成或2全部,\"priority\":-1全部或0未指定或1低或2中或3高,\"from\":\"yyyy-MM-dd或空\",\"to\":\"yyyy-MM-dd或空\",\"tags\":\"key:value，以英文逗号分隔，可空\",\"explanation\":\"简短说明查询条件\"}。相对日期依据当前日历日和时区；只解析条件，不要生成任务。", prompt: "今天：\(TaskSchedule.dayString(Date()))，时区：\(TimeZone.current.identifier)\n查询：\(input)")
+                let output = try await ConfiguredModelService.shared.respond(purpose: .search, system: "解析任务查询，不执行操作。只输出JSON：{\"keywords\":\"主题关键词，可为空\",\"status\":0未完成或1已完成或2全部,\"priority\":-1全部或0未指定或1低或2中或3高,\"from\":\"yyyy-MM-dd或空\",\"to\":\"yyyy-MM-dd或空\",\"tags\":\"key:value，以英文逗号分隔，可空\",\"explanation\":\"简短说明查询条件\"}。相对日期依据当前日历日和时区；只解析条件，不要生成任务。", prompt: "今天：\(TaskSchedule.dayString(Date()))，时区：\(TimeZone.current.identifier)\n查询：\(input)")
                 let object = try TaskAI.parseObject(output)
                 guard token == searchID, !Task.isCancelled else { return }
                 guard let terms = object["keywords"] as? String, let state = object["status"] as? Int, (0...2).contains(state), let importance = object["priority"] as? Int, (-1...3).contains(importance) else { throw TaskFailure("查找条件格式不正确，请重试") }
