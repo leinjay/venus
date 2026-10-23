@@ -41,6 +41,7 @@
 		B91000000000000000000005 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A91000000000000000000005; };
 		B91000000000000000000006 /* ModelConfigurationEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A91000000000000000000006; };
 		B92000000000000000000001 /* transcription-probe.wav in Resources */ = {isa = PBXBuildFile; fileRef = A92000000000000000000001; };
+		B93000000000000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A93000000000000000000001; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -97,6 +98,7 @@
 		A91000000000000000000005 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Settings/SettingsView.swift"; sourceTree = "<group>"; };
 		A91000000000000000000006 /* ModelConfigurationEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Settings/ModelConfigurationEditor.swift"; sourceTree = "<group>"; };
 		A92000000000000000000001 /* transcription-probe.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = "Resources/transcription-probe.wav"; sourceTree = "<group>"; };
+		A93000000000000000000001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = VenusTools/iOS/Resources/Assets.xcassets; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -174,6 +176,7 @@
 			isa = PBXGroup;
 			children = (
 				A10000000000000000000001 /* VenusToolsApp.swift */,
+				A93000000000000000000001 /* Assets.xcassets */,
 				A10000000000000000000002 /* ContentView.swift */,
 			);
 			path = App;
@@ -298,7 +301,7 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		E10000000000000000000003 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (B92000000000000000000001, ); runOnlyForDeploymentPostprocessing = 0; };
+		E10000000000000000000003 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (B92000000000000000000001, B93000000000000000000001, ); runOnlyForDeploymentPostprocessing = 0; };
 		E10000000000000000000007 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
@@ -401,6 +404,7 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "连接你主动配置的局域网模型服务";
 				INFOPLIST_FILE = VenusTools/iOS/App/Info.plist;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "用于将语音输入转换为任务文字";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "仅使用设备本机语音识别整理任务";
 				INFOPLIST_KEY_NSCameraUsageDescription = "用于拍摄任务资料并在本机提取文字";
@@ -430,6 +434,7 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "连接你主动配置的局域网模型服务";
 				INFOPLIST_FILE = VenusTools/iOS/App/Info.plist;
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "用于将语音输入转换为任务文字";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "仅使用设备本机语音识别整理任务";
 				INFOPLIST_KEY_NSCameraUsageDescription = "用于拍摄任务资料并在本机提取文字";

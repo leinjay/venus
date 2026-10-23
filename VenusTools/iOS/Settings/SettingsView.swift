@@ -2,11 +2,26 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct SettingsView: View {
+    @AppStorage(AppSkin.storageKey) private var skin = AppSkin.classic.rawValue
     @ObservedObject private var registry = ModelRegistry.shared
     @EnvironmentObject private var navigation: AppNavigation
     var body: some View {
         NavigationStack(path: $navigation.settingsPath) {
             List {
+                Section("外观") {
+                    Picker("皮肤", selection: $skin) {
+                        ForEach(AppSkin.allCases) { skin in Text(skin.title).tag(skin.rawValue) }
+                    }
+                    HStack(spacing: 12) {
+                        Image(systemName: "sparkles").font(.title2).foregroundStyle(AppTheme.pine)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(skin == AppSkin.sky.rawValue ? "晴空蓝" : "松林绿").foregroundStyle(AppTheme.ink)
+                            Text("清爽底色 · 柔和卡片 · 清晰文字").font(.caption).foregroundStyle(AppTheme.secondary)
+                        }
+                    }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                        .background(AppTheme.canvas, in: RoundedRectangle(cornerRadius: 12))
+                }
+
                 Section {
                     NavigationLink(value: SettingsRoute.models) {
                         VStack(alignment: .leading, spacing: 5) {

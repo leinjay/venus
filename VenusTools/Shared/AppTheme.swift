@@ -1,16 +1,24 @@
 import SwiftUI
 
+enum AppSkin: String, CaseIterable, Identifiable {
+    case classic, sky
+    var id: String { rawValue }
+    var title: String { self == .sky ? "晴空蓝" : "松林绿" }
+    static let storageKey = "venus.appearance.skin"
+}
+
 enum AppTheme {
-    static let canvas = Color(hex: 0xF5F2E9)
-    static let surface = Color(hex: 0xFFFDF7)
-    static let pine = Color(hex: 0x315744)
-    static let pineDark = Color(hex: 0x213D30)
-    static let sage = Color(hex: 0xE4EBE2)
-    static let amber = Color(hex: 0xD99542)
-    static let ink = Color(hex: 0x26352C)
-    static let secondary = Color(hex: 0x7B8177)
-    static let line = Color(hex: 0xE8E3D8)
-    static let terracotta = Color(hex: 0xB76D52)
+    private static var sky: Bool { UserDefaults.standard.string(forKey: AppSkin.storageKey) == AppSkin.sky.rawValue }
+    static var canvas: Color { Color(hex: sky ? 0xEEF7FE : 0xF5F2E9) }
+    static var surface: Color { Color(hex: sky ? 0xFFFFFF : 0xFFFDF7) }
+    static var pine: Color { Color(hex: sky ? 0x1879B5 : 0x315744) }
+    static var pineDark: Color { Color(hex: sky ? 0x12557F : 0x213D30) }
+    static var sage: Color { Color(hex: sky ? 0xDCEFFC : 0xE4EBE2) }
+    static var amber: Color { Color(hex: sky ? 0xAD6A19 : 0xD99542) }
+    static var ink: Color { Color(hex: sky ? 0x183C55 : 0x26352C) }
+    static var secondary: Color { Color(hex: sky ? 0x58758A : 0x7B8177) }
+    static var line: Color { Color(hex: sky ? 0xD0E5F3 : 0xE8E3D8) }
+    static var terracotta: Color { Color(hex: sky ? 0xB25D48 : 0xB76D52) }
 }
 
 extension Color {

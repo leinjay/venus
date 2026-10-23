@@ -21,6 +21,7 @@ final class AppNavigation: ObservableObject {
 }
 
 struct ContentView: View {
+    @AppStorage(AppSkin.storageKey) private var skin = AppSkin.classic.rawValue
     @StateObject private var navigation = AppNavigation()
     @StateObject private var focusStore = FocusTimerStore()
     @StateObject private var checklistStore = ChecklistStore()
@@ -58,6 +59,7 @@ struct ContentView: View {
                 .tabItem { Label("设置", systemImage: "gearshape") }
                 .tag(4)
         }
+        .id(skin)
         .environmentObject(navigation)
         .onChange(of: reminderStore.notificationTaskID) { _, id in if id != nil { navigation.selectedTab = 0 } }
         .tint(AppTheme.pine)

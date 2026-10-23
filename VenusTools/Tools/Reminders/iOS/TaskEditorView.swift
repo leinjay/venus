@@ -39,6 +39,7 @@ struct TaskEditorView: View {
     @State private var previewMarkdown = false
     @State private var tagKey = ""
     @State private var tagValue = ""
+    @GestureState private var voicePressed = false
     @State private var voicePrefix = ""
     @State private var lastVoiceInput = ""
     @State private var imageToEdit: TaskImage?
@@ -98,9 +99,15 @@ struct TaskEditorView: View {
         }
         .onChange(of: draft.input) { _, _ in persistDraft() }
         .onChange(of: draft.images) { _, _ in persistDraft() }
-        .onChange(of: draft.tab) { _, _ in voice.stop(); recorder.stop(); persistDraft() }
+        .onChange(of: draft.tab) { _, _ in voice.cancel(); recorder.stop(); persistDraft() }
+        .onChange(of: voicePressed) { _, pressed in
+            if pressed { toggleVoice() } else { finishVoiceHold() }
+        }
+        .onChange(of: voice.recording) { _, recording in
+            if !recording { applyVoiceText(voice.text) }
+        }
         .onChange(of: recorder.seconds) { _, seconds in
-            if seconds >= 120 && editorVisible && scenePhase == .active { transcribeAudio() }
+            if seconds >= 120 && editorVisible && scenePhase == .active { recorder.stop(); transcribeAudio() }
         }
         .onChange(of: photos) { _, values in
             Task { for value in values {
@@ -109,9 +116,7 @@ struct TaskEditorView: View {
             }; photos = [] }
         }
         .onReceive(voice.$text) { text in
-            if !text.isEmpty, !finished, draft.input == lastVoiceInput {
-                draft.input = voicePrefix + text; lastVoiceInput = draft.input
-            }
+            if !voice.recording { applyVoiceText(text) }
         }
         .onDisappear { editorVisible = false; cancelAnalysis(); cancelSpeech(); voice.cancel(); recorder.stop(); if !finished { persistDraft() } }
         .onChange(of: scenePhase) { _, phase in
@@ -267,9 +272,15 @@ struct TaskEditorView: View {
                 .lineLimit(1...5).focused($inputFocused).padding(12)
                 .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 16))
             HStack(spacing: 16) {
-                Button(action: toggleVoice) { Image(systemName: isRecording ? "stop.circle.fill" : "mic").font(.title3).frame(minWidth: 32, minHeight: 36) }
-                    .disabled(voice.starting || recorder.starting || transcribing)
-                    .accessibilityLabel(isRecording ? "结束录音" : "语音输入")
+                Text(isRecording ? "松开转文字" : "按住说话")
+                    .font(.subheadline.weight(.medium)).padding(.horizontal, 12).frame(minHeight: 44)
+                    .background(isRecording ? AppTheme.line : AppTheme.surface, in: Capsule())
+                    .contentShape(Capsule())
+                    .gesture(DragGesture(minimumDistance: 0).updating($voicePressed) { _, pressed, _ in pressed = true })
+                    .allowsHitTesting(!transcribing)
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityLabel(isRecording ? "结束录音并转文字" : "按住说话，松开转文字")
+                    .accessibilityAction { if isRecording { finishVoiceHold() } else { toggleVoice(accessibility: true) } }
                 PhotosPicker(selection: $photos, maxSelectionCount: 3, matching: .images) { Image(systemName: "photo").font(.title3).frame(minWidth: 32, minHeight: 36) }.accessibilityLabel("从相册添加图片")
                 Menu {
                     Button("拍摄") { inputFocused = false; if UIImagePickerController.isSourceTypeAvailable(.camera) { camera = true } else { error = "此设备没有可用相机" } }
@@ -429,11 +440,23 @@ struct TaskEditorView: View {
         modelSettings = true
     }
     private func cancelSpeech() { speechID = UUID(); speechTask?.cancel(); speechTask = nil; transcribing = false }
-    private func toggleVoice() {
+    private func applyVoiceText(_ text: String) {
+        guard !text.isEmpty, editorVisible, !finished, draft.input == lastVoiceInput else { return }
+        let combined = voicePrefix + text
+        guard combined.count <= 2000 else { speechError = "语音识别结果超过 2,000 字，请缩短录音后重试。"; return }
+        draft.input = combined; lastVoiceInput = draft.input
+    }
+    private func finishVoiceHold() {
+        if voice.starting { voice.cancel() }
+        if recorder.starting { recorder.stop() }
+        if voice.recording { voice.stop(); applyVoiceText(voice.text) }
+        if recorder.recording { recorder.stop(); transcribeAudio() }
+    }
+    private func toggleVoice(accessibility: Bool = false) {
         inputFocused = false; speechError = nil; voice.error = nil
         if recorder.recording { recorder.stop(); transcribeAudio(); return }
         if voice.recording { voice.stop(); return }
-        guard !transcribing else { return }
+        guard !transcribing, !voice.starting, !recorder.starting else { return }
         if registry.selected(.transcription) != nil {
             guard draft.audio == nil else { speechError = "请先转写或删除已保留的录音，再录制下一段。"; return }
             do { _ = try registry.resolve(.transcription) }
@@ -441,15 +464,19 @@ struct TaskEditorView: View {
             let audio = TaskAudio(filename: "audio-\(UUID()).m4a")
             Task {
                 do {
+                    guard editorVisible, voicePressed || accessibility else { return }
                     try await recorder.start(at: store.audioURL(audio))
-                    guard editorVisible else { recorder.stop(); store.removeAudio(audio); return }
+                    guard editorVisible, voicePressed || accessibility else { recorder.stop(); store.removeAudio(audio); return }
                     draft.audio = audio; persistDraft()
                 } catch is CancellationError { store.removeAudio(audio) }
                 catch { speechError = error.localizedDescription; store.removeAudio(audio) }
             }
         } else {
             lastVoiceInput = draft.input; voicePrefix = draft.input.isEmpty ? "" : draft.input + "\n"
-            Task { await voice.start() }
+            Task {
+                guard editorVisible, voicePressed || accessibility else { return }
+                await voice.start()
+            }
         }
     }
     private func transcribeAudio() {

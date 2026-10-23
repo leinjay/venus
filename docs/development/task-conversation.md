@@ -31,3 +31,10 @@
 覆盖 SSE 分片、多字节与转义、仅提取顶层回复、错误及未结束响应、停止不应用属性、旧消息解码、会话归属与保留、转写 multipart/鉴权/错误、能力匹配和独立绑定。云端执行核心测试与 iPhone/Watch 构建；底部输入栏、键盘、录音权限和真实音频服务需手机验收。真实服务测试只使用固定/合成材料，不读取用户任务或录音。
 
 接口依据：[Apple 语音错误码](https://developer.apple.com/documentation/speech/sfspeechrecognitiontask/error)、[Apple 启用听写](https://support.apple.com/guide/iphone/dictate-text-iph2c0651d2/ios)、[音频转写兼容请求](https://developers.openai.com/api/reference/resources/audio/subresources/transcriptions/methods/create)。
+
+
+### 按住语音输入
+
+任务对话输入栏支持按住“按住说话”录音，松开后将识别文字放入输入框，用户核对后自行发送。系统离线识别在录音期间缓存识别结果，松开后填入文字；配置音频转写模型时，松开后上传录音并等待转写。单次录音最多两分钟。授权弹窗期间松手会取消启动，需要授权后再次按住。VoiceOver 用户可通过激活控件开始、再次激活结束。
+
+在设置的“工具使用模型”中选择任务语音转文字的来源：系统本机离线识别，或已配置的音频转写兼容服务（multipart `/audio/transcriptions`）。本机 WhisperKit 模板尚未接入运行库。远程转写失败保留录音，可重试或删除。
