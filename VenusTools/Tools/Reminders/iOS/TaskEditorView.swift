@@ -83,7 +83,7 @@ struct TaskEditorView: View {
         .navigationBarBackButtonHidden()
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { Button("返回", action: leaveKeepingDraft) }
-            ToolbarItem(placement: .topBarTrailing) { Button { inputFocused = false; modelSettings = true } label: { Image(systemName: "cpu") }.accessibilityLabel("选择模型与管理配置") }
+            ToolbarItem(placement: .topBarTrailing) { Button(action: showModelOptions) { Image(systemName: "cpu") }.accessibilityLabel("选择模型与管理配置") }
             ToolbarItem(placement: .topBarTrailing) { Button("保存", action: prepareSave).fontWeight(.semibold).accessibilityHint("保存当前任务属性，停止尚未完成的回复") }
         }
         .toolbar(.hidden, for: .tabBar)
@@ -241,7 +241,7 @@ struct TaskEditorView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(issue).font(.caption).foregroundStyle(AppTheme.terracotta)
                     HStack {
-                        Button("选择语音模型") { inputFocused = false; modelSettings = true }
+                        Button("选择语音模型", action: showModelOptions)
                         if voice.needsSettings { Button("打开应用权限") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } } }
                         Spacer()
                         Button { speechError = nil; voice.error = nil } label: { Image(systemName: "xmark") }.accessibilityLabel("收起语音提示")
@@ -286,7 +286,7 @@ struct TaskEditorView: View {
             HStack {
                 Text("\(draft.input.count) / 2,000 字").foregroundStyle(draft.input.count > 2000 ? AppTheme.terracotta : AppTheme.secondary)
                 Spacer()
-                Text("离开自动保留草稿").foregroundStyle(AppTheme.secondary)
+                Text(isRecording ? "正在录音 · 最多 2 分钟" : "离开自动保留草稿").foregroundStyle(AppTheme.secondary)
             }.font(.caption2)
         }.padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 8)
             .background(AppTheme.canvas)
@@ -423,6 +423,10 @@ struct TaskEditorView: View {
         inputFocused = false; cancelAnalysis(); cancelSpeech(); voice.cancel(); recorder.stop()
         guard persistDraft() else { return }
         openSettingsAfterDismiss = true; modelSettings = false
+    }
+    private func showModelOptions() {
+        inputFocused = false; voice.cancel(); recorder.stop(); cancelSpeech(); persistDraft()
+        modelSettings = true
     }
     private func cancelSpeech() { speechID = UUID(); speechTask?.cancel(); speechTask = nil; transcribing = false }
     private func toggleVoice() {

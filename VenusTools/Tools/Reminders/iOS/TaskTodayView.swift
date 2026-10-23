@@ -10,6 +10,7 @@ struct TaskTodayView: View {
     @State private var generating = false
     @State private var request: Task<Void, Never>?
     @State private var token = UUID()
+    var onManageModels: (() -> Void)? = nil
     var onOpen: (UUID) -> Void
     private var today: [ReminderItem] { TaskRules.today(store.reminders, now: now) }
     private var overdue: [ReminderItem] { let start = Calendar.current.startOfDay(for: now); return store.reminders.filter { !$0.isDone && $0.schedule.trigger().map { $0 < start } == true }.sorted(by: TaskRules.importanceOrder) }
@@ -34,7 +35,7 @@ struct TaskTodayView: View {
             if !overdue.isEmpty { Section("此前逾期 · \(overdue.count)") { ForEach(overdue) { row($0) } } }
             if !unplanned.isEmpty { Section { DisclosureGroup("未安排 · \(unplanned.count) 项") { ForEach(unplanned) { row($0) } } } }
             if !completed.isEmpty { Section { DisclosureGroup("今天已完成 · \(completed.count) 项") { ForEach(completed) { row($0) } } } }
-            Section { ModelBindingPanel(purpose: .summary) }
+            Section { ModelBindingPanel(purpose: .summary, onManage: onManageModels) }
         }.navigationTitle("今天要做的事").toolbar { ToolbarItem(placement: .confirmationAction) { Button("关闭") { dismiss() } } }
         .task { generate() }
         .onChange(of: store.revision) { _, _ in now = Date(); cancel(); stale = true }

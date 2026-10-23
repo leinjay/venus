@@ -7,13 +7,16 @@ final class AppNavigation: ObservableObject {
     @Published var selectedTab = 0
     @Published var settingsPath: [SettingsRoute] = []
     @Published private(set) var returnTab: Int?
-    func openModels() {
-        if selectedTab != 4 { returnTab = selectedTab }
+    private var returnAction: (() -> Void)?
+    func openModels(onReturn: (() -> Void)? = nil) {
+        if selectedTab != 4 { returnTab = selectedTab; returnAction = onReturn }
         settingsPath = [.models]; selectedTab = 4
     }
     func returnFromSettings() {
-        let tab = returnTab; returnTab = nil; settingsPath = []
+        let tab = returnTab, action = returnAction
+        returnTab = nil; returnAction = nil; settingsPath = []
         if let tab { selectedTab = tab }
+        action?()
     }
 }
 

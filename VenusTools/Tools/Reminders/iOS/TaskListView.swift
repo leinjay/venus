@@ -7,6 +7,7 @@ enum TaskRoute: Hashable {
 
 struct RemindersView: View {
     @ObservedObject var store: ReminderStore
+    @EnvironmentObject private var navigation: AppNavigation
     @Environment(\.scenePhase) private var scenePhase
     @State private var path: [TaskRoute] = []
     @State private var query = ""
@@ -21,6 +22,7 @@ struct RemindersView: View {
     @State private var filter = false
     @State private var recycle = false
     @State private var today = false
+    @State private var manageAfterToday = false
     @State private var searching = false
     @State private var searchTask: Task<Void, Never>?
     @State private var searchID = UUID()
@@ -124,7 +126,11 @@ struct RemindersView: View {
         .overlay { if path.last?.isEditing != true { TaskAssistantButton { today = true } } }
         .sheet(isPresented: $filter) { filterSheet }
         .sheet(isPresented: $recycle) { TaskRecycleView(store: store) }
-        .sheet(isPresented: $today) { TaskTodayView(store: store) { id in today = false; path.append(.detail(id)) } }
+        .sheet(isPresented: $today, onDismiss: {
+            if manageAfterToday { manageAfterToday = false; navigation.openModels(onReturn: { today = true }) }
+        }) {
+            TaskTodayView(store: store, onManageModels: { manageAfterToday = true; today = false }) { id in today = false; path.append(.detail(id)) }
+        }
         .onChange(of: query) { _, _ in searchTask?.cancel(); searchID = UUID(); searching = false; keywords = nil; explanation = "" }
         .onChange(of: hideTitle) { _, _ in store.refreshNotifications() }
         .onChange(of: scenePhase) { _, phase in if phase == .active { store.refreshNotifications() } }

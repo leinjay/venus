@@ -122,3 +122,9 @@
 - [MLX Swift](https://github.com/ml-explore/mlx-swift)：Apple 芯片上的 Swift 推理框架，支持 iOS 17 及以上。
 - [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift)：提供基于 Core ML 的本地语音识别，可选择多语言 Whisper small 模型。
 - [Apple Intelligence 地区可用性](https://support.apple.com/zh-cn/121115)：中国大陆的部分设备购买地与 Apple 账户地区组合暂不可用，因此不以 Apple Foundation Models 作为首发依赖。
+
+## 2026-10-23 任务语音转写与会话补充
+
+最新用户要求语音转文字可使用配置中的模型，不再强制依赖 Siri。新增音频转写兼容适配器及独立用途绑定，只允许音频模型候选；用户单独确认原始录音发送到所选服务后才请求，不把文字模型或博查聊天 Key 当成已验证音频能力。系统离线识别仍为明确可选项，不作为模型失败后的隐式回退。原始录音外发为此用途的限定例外，图片及其他用途原始媒体边界不变。
+
+任务会话按任务长期保存在手机，统一保存不清理文字消息；未保存草稿及原始媒体仍最长七天。流式只显示回复的自然语言，不显示推理或属性 JSON，完整校验后才合并任务草稿。具体旧新规则、失败处理及未完成的本机视觉/WhisperKit 边界见 [任务对话体验调整](../development/task-conversation.md) 与 [设置第 12 节](../setting.md#12-2026-10-23-语音与任务对话修订)。

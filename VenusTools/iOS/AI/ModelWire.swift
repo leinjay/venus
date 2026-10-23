@@ -85,12 +85,14 @@ enum ModelWire {
         case .openAI:
             guard let first = (object["choices"] as? [[String: Any]])?.first else { return "" }
             if first["finish_reason"] as? String == "length" { throw ModelFailure("输出被截断，请增加输出上限或缩短输入") }
+            if first["finish_reason"] as? String == "content_filter" { throw ModelFailure("服务中断了此回复，请调整输入；本轮属性未应用") }
             let message = (first["message"] as? [String: Any]) ?? (first["delta"] as? [String: Any]) ?? [:]
             if let value = message["content"] as? String { return value }
             return (message["content"] as? [[String: Any]] ?? []).filter { $0["type"] as? String == "text" }.compactMap { $0["text"] as? String }.joined()
         case .anthropic:
             if object["stop_reason"] as? String == "max_tokens" || (object["delta"] as? [String: Any])?["stop_reason"] as? String == "max_tokens" { throw ModelFailure("输出被截断，请增加输出上限或缩短输入") }
             if object["type"] as? String == "error" { throw ModelFailure("模型流返回错误，请检查配置后重试") }
+            if object["type"] as? String == "content_block_start", let block = object["content_block"] as? [String: Any], block["type"] as? String == "text" { return block["text"] as? String ?? "" }
             if let delta = object["delta"] as? [String: Any], delta["type"] as? String == "text_delta" { return delta["text"] as? String ?? "" }
             return (object["content"] as? [[String: Any]] ?? []).filter { $0["type"] as? String == "text" }.compactMap { $0["text"] as? String }.joined()
         case .gemini:
