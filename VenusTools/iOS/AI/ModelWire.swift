@@ -110,6 +110,7 @@ enum ModelWire {
 /// Bytes may split UTF-8 characters or SSE lines. Only decoded content reaches callers.
 struct ModelStreamDecoder {
     let adapter: ModelAdapter
+    init(adapter: ModelAdapter) { self.adapter = adapter }
     private var line = Data()
     private var dataLines: [String] = []
     private var byteCount = 0
