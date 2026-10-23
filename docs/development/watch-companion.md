@@ -14,7 +14,15 @@
 6. 提醒由 iPhone 统一安排，通过系统通知转发到配对手表；手表不重复安排同一任务的本地通知。这一阶段不承诺手机离线后手表独立定时提醒。需要允许手机通知、开启 Watch 镜像，并符合系统关于手机锁屏、手表佩戴及解锁等条件。
 7. 配套 IPA 保留现有手机版，Watch 不包含 Qwen3 或新增付费能力。安装器要对两端使用同一个账号、协调签名及 Bundle ID，才能验证 WatchConnectivity 数据共享。不能把另一账号或另一 Bundle ID 的旧手机应用当作这一安装的主应用。
 
-## Windows 安装入口
+## 2026-10-23 配色调整
+
+Watch 列表、空态、同步状态和任务详情统一沿用手机版的米白背景 `#F5F2E9`、浅色卡片 `#FFFDF7`、深色正文 `#26352C` 与深绿 `#315744`。此前部分文字继承 watchOS 默认浅色前景，叠在米白背景上辨识不清；两页现通过同一个页面修饰器明确正文前景和背景，并使用 watchOS 的 navigation container background 统一导航容器背景。
+
+小字号辅助文字单独加深为 `#566459`，重要程度与前置提示使用深琥珀 `#875019`；不修改手机版公共色值。选中范围和同步按钮为深绿底、浅色文字，未选范围与任务卡片增加浅边线。颜色按米白背景及卡片两种底色检查文字对比度，目标均至少 4.5:1。此次仅调整显示，保留原有任务同步、筛选和操作。
+
+配套构建版本更新为 4，手机与 Watch 保持相同版本及原 Bundle ID。Windows 可检查 Swift 语法、色值对比和云端编译；实际字号、导航文字及常亮显示仍需 Watch 真机确认。导航背景 API 依据 [Apple containerBackground 文档](https://developer.apple.com/documentation/swiftui/view/containerbackground(_:for:))。
+
+## Windows 安装步骤
 
 现有真实软件目录为 `D:\software-common`，工具放在 `D:\software-common\iLoader`。选择 [AndreySemjonov 的 iLoader Watch 分支 v2.3.4-fork.2](https://github.com/AndreySemjonov/iloader/releases/tag/v2.3.4-fork.2)，这是社区维护的便携版本，不是原版 iLoader 的官方发布。下载后核对发布页的 SHA-256 与构建来源，不把 Apple 账号或配对文件写入项目。
 
