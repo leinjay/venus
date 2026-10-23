@@ -5,11 +5,24 @@ import UniformTypeIdentifiers
 struct TaskEditorView: View {
     @ObservedObject var store: ReminderStore
     @StateObject private var voice = TaskVoiceInput()
+    @StateObject private var recorder = TaskAudioRecorder()
+    @ObservedObject private var registry = ModelRegistry.shared
+    @EnvironmentObject private var navigation: AppNavigation
+    @Environment(\.scenePhase) private var scenePhase
+    @FocusState private var inputFocused: Bool
     @State private var draft: TaskDraft
-    @State private var restorable: TaskDraft?
-    @State private var askRestore = false
-    @State private var askLeave = false
-    @State private var askSaveDuringAnalysis = false
+    @State private var restoredNotice: String?
+    @State private var modelSettings = false
+    @State private var openSettingsAfterDismiss = false
+    @State private var followReply = true
+    @State private var editorVisible = false
+    @State private var assistantID: UUID?
+    @State private var sentInput: String?
+    @State private var lastProgressSaved = Date.distantPast
+    @State private var speechTask: Task<Void, Never>?
+    @State private var speechID = UUID()
+    @State private var transcribing = false
+    @State private var speechError: String?
     @State private var error: String?
     @State private var analysis: Task<Void, Never>?
     @State private var requestID = UUID()
@@ -36,15 +49,32 @@ struct TaskEditorView: View {
         self.store = store; self.onSaved = onSaved; self.onClose = onClose
         var value = TaskDraft(); value.base = task; value.task = restoredVersion ?? task ?? ReminderItem()
         if let restoredVersion, let task { value.task.id = task.id; value.task.lifecycle = task.lifecycle; value.task.deletedAt = nil; value.task.notificationVersion = task.notificationVersion; value.tab = 1; _ = restoredVersion }
+        var notice: String?
+        if restoredVersion == nil, let saved = store.loadDraft(value.key), saved.base?.lifecycle == value.base?.lifecycle {
+            value = saved; notice = "已恢复上次草稿"
+        }
+        if let task {
+            do {
+                if let conversation = try store.conversation(task.id) {
+                    value.conversationID = conversation.id
+                    if value.messages.isEmpty { value.messages = conversation.messages }
+                }
+            } catch { notice = "历史对话读取失败，原文件已保留；请先保留本页内容再重试。" }
+        }
+        value.conversationID = value.conversationID ?? UUID()
+        value.messages = TaskConversation.recovered(value.messages)
         _draft = State(initialValue: value)
-        _restorable = State(initialValue: restoredVersion == nil ? store.loadDraft(value.key) : nil)
+        _restoredNotice = State(initialValue: notice)
+        _pendingImages = State(initialValue: Set(value.selectedImageIDs ?? []))
+        _conflicts = State(initialValue: value.unresolvedConflicts ?? [])
+        _conflictingTask = State(initialValue: value.conflictProposal)
     }
 
     private var editorContent: some View {
         VStack(spacing: 0) {
             Picker("编辑方式", selection: $draft.tab) { Text("与 AI 对话").tag(0); Text("属性表单").tag(1) }
                 .pickerStyle(.segmented).padding()
-            if processing { HStack { ProgressView(); Text("正在整理，可继续编辑表单"); Spacer(); Button("取消", action: cancelAnalysis) }.font(.caption).padding(.horizontal).padding(.bottom, 8) }
+            if processing && draft.tab == 1 { HStack { ProgressView(); Text("正在回复，可继续编辑属性"); Spacer(); Button("停止", action: cancelAnalysis) }.font(.caption).padding(.horizontal).padding(.bottom, 8) }
             if draft.tab == 0 { conversation } else { form }
         }
         .background(AppTheme.canvas.ignoresSafeArea())
@@ -52,21 +82,26 @@ struct TaskEditorView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden()
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) { Button("返回") { voice.stop(); askLeave = true } }
-            ToolbarItem(placement: .topBarTrailing) { Button("保存") { if processing { askSaveDuringAnalysis = true } else { prepareSave() } }.fontWeight(.semibold) }
+            ToolbarItem(placement: .topBarLeading) { Button("返回", action: leaveKeepingDraft) }
+            ToolbarItem(placement: .topBarTrailing) { Button { inputFocused = false; modelSettings = true } label: { Image(systemName: "cpu") }.accessibilityLabel("选择模型与管理配置") }
+            ToolbarItem(placement: .topBarTrailing) { Button("保存", action: prepareSave).fontWeight(.semibold).accessibilityHint("保存当前任务属性，停止尚未完成的回复") }
         }
+        .toolbar(.hidden, for: .tabBar)
     }
 
     private var observedEditor: some View {
         editorContent
-        .onAppear { askRestore = restorable != nil }
+        .onAppear { editorVisible = true }
         .onChange(of: draft.task) { old, new in
             for field in TaskField.allCases where field.value(old) != field.value(new) { draft.fieldRevisions[field.rawValue, default: 0] += 1 }
             persistDraft()
         }
-        .onChange(of: draft.input) { _, _ in if processing { cancelAnalysis() }; persistDraft() }
+        .onChange(of: draft.input) { _, _ in persistDraft() }
         .onChange(of: draft.images) { _, _ in persistDraft() }
-        .onChange(of: draft.tab) { _, _ in voice.stop(); persistDraft() }
+        .onChange(of: draft.tab) { _, _ in voice.stop(); recorder.stop(); persistDraft() }
+        .onChange(of: recorder.seconds) { _, seconds in
+            if seconds >= 120 && editorVisible && scenePhase == .active { transcribeAudio() }
+        }
         .onChange(of: photos) { _, values in
             Task { for value in values {
                 do { if let data = try await value.loadTransferable(type: Data.self) { try addImage(data) } }
@@ -78,37 +113,29 @@ struct TaskEditorView: View {
                 draft.input = voicePrefix + text; lastVoiceInput = draft.input
             }
         }
-        .onReceive(voice.$error) { if let value = $0 { error = value } }
-        .onDisappear { cancelAnalysis(); voice.cancel(); if !finished { persistDraft() } }
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in cancelAnalysis(); voice.cancel(); persistDraft() }
+        .onDisappear { editorVisible = false; cancelAnalysis(); cancelSpeech(); voice.cancel(); recorder.stop(); if !finished { persistDraft() } }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { editorVisible = true }
+            else if phase == .background { editorVisible = false; cancelAnalysis(); cancelSpeech(); voice.cancel(); recorder.stop(); persistDraft() }
+        }
     }
 
     private var editorDialogs: some View {
         observedEditor
-        .alert("发现未完成草稿，最多保留 7 天", isPresented: $askRestore) {
-            Button("恢复草稿") {
-                if let restorable {
-                    draft = restorable; pendingImages = Set(restorable.selectedImageIDs ?? [])
-                    conflicts = restorable.unresolvedConflicts ?? []; conflictingTask = restorable.conflictProposal
-                }
-                restorable = nil
-            }
-            Button("放弃旧草稿", role: .destructive) { try? store.discardDraft(draft.key); restorable = nil }
-        }
-        .confirmationDialog("离开编辑页", isPresented: $askLeave, titleVisibility: .visible) {
-            Button("保存任务并离开") { if processing { askSaveDuringAnalysis = true } else { prepareSave() } }
-            Button("保留草稿并离开") { cancelAnalysis(); persistDraft(); finished = true; onClose() }
-            Button("放弃本次编辑", role: .destructive) { cancelAnalysis(); try? store.discardDraft(draft.key); for image in draft.images { store.removeImage(image) }; finished = true; onClose() }
-            Button("继续编辑", role: .cancel) {}
-        }
-        .confirmationDialog("AI 尚未完成，当前保存不会包含其后续结果", isPresented: $askSaveDuringAnalysis, titleVisibility: .visible) {
-            Button("保存当前草稿") { cancelAnalysis(); prepareSave() }
-        }
         .alert("请检查", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("知道了") { error = nil } } message: { Text(error ?? "") }
     }
 
     var body: some View {
         editorDialogs
+        .sheet(isPresented: $modelSettings, onDismiss: { if openSettingsAfterDismiss { openSettingsAfterDismiss = false; navigation.openModels() } }) {
+            NavigationStack {
+                List {
+                    Section { ModelBindingPanel(purpose: .dialogue, onManage: openModelSettings) }
+                    Section { ModelBindingPanel(purpose: .transcription, onManage: openModelSettings) }
+                }.navigationTitle("本次任务使用的模型")
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { modelSettings = false } } }
+            }.presentationDetents([.medium, .large])
+        }
         .sheet(isPresented: $showDependencies) { dependencyPicker }
         .sheet(item: $imageToEdit) { image in imageEditor(image) }
         .sheet(isPresented: $camera) { TaskCamera { image in do { if let data = image.jpegData(compressionQuality: 0.9) { try addImage(data) } } catch { self.error = error.localizedDescription } } }
@@ -116,14 +143,63 @@ struct TaskEditorView: View {
     }
 
     private var conversation: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                ModelBindingPanel(purpose: .dialogue).surfaceCard(padding: 14)
-                Text("用文字、语音或图片中的文字描述一件事。AI 整理后可切换表单检查，点击保存才创建或更新任务。")
-                    .font(.subheadline).foregroundStyle(AppTheme.secondary)
-                ForEach(draft.messages) { message in
-                    HStack { if message.isUser { Spacer(minLength: 28) }; Text(message.text).textSelection(.enabled).padding(14).background(message.isUser ? AppTheme.sage : AppTheme.surface, in: RoundedRectangle(cornerRadius: 16)); if !message.isUser { Spacer(minLength: 28) } }
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 18) {
+                    if let restoredNotice {
+                        Text(restoredNotice).font(.caption).foregroundStyle(AppTheme.secondary)
+                    }
+                    if draft.messages.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Image(systemName: "bubble.left.and.bubble.right").font(.system(size: 30)).foregroundStyle(AppTheme.pine)
+                            Text("从一件想做的事开始").font(.title3).fontWeight(.semibold)
+                            Text("告诉我想做什么，我会帮你整理任务。也可以随时切到属性表单调整。")
+                                .font(.subheadline).foregroundStyle(AppTheme.secondary)
+                            Text(registry.selected(.dialogue)?.name ?? "请点击右上角模型图标选择模型")
+                                .font(.caption).foregroundStyle(AppTheme.pine)
+                        }.padding(.top, 24).padding(.bottom, 12)
+                    }
+                    ForEach(draft.messages) { message in messageRow(message).id(message.id) }
+                    conversationMaterials
+                    Color.clear.frame(height: 1).id("conversation-bottom")
+                }.padding(.horizontal, 16).padding(.vertical, 12)
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .simultaneousGesture(DragGesture().onChanged { _ in followReply = false })
+            .onChange(of: draft.messages.last?.text) { _, _ in if followReply { proxy.scrollTo("conversation-bottom", anchor: .bottom) } }
+            .onChange(of: draft.messages.count) { _, _ in if followReply { withAnimation { proxy.scrollTo("conversation-bottom", anchor: .bottom) } } }
+            .overlay(alignment: .bottomTrailing) {
+                if !followReply && !draft.messages.isEmpty {
+                    Button { followReply = true; withAnimation { proxy.scrollTo("conversation-bottom", anchor: .bottom) } } label: {
+                        Image(systemName: "arrow.down").padding(12).background(AppTheme.surface, in: Circle()).shadow(color: .black.opacity(0.08), radius: 8)
+                    }.padding(12).accessibilityLabel("回到最新对话")
                 }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) { composer }
+        }
+    }
+
+    private func messageRow(_ message: TaskMessage) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            if message.isUser { Spacer(minLength: 32) }
+            else { Image(systemName: "sparkles").font(.caption).foregroundStyle(AppTheme.pine).padding(.top, 14) }
+            VStack(alignment: .leading, spacing: 8) {
+                if !message.text.isEmpty { Text(message.text).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
+                if message.state == .receiving {
+                    HStack(spacing: 6) { ProgressView().controlSize(.mini); Text(message.text.isEmpty ? "正在等待回复…" : "正在接收回复、核对任务属性…") }.font(.caption).foregroundStyle(AppTheme.secondary)
+                } else if message.state == .stopped {
+                    Text("已停止 · 本轮未应用属性").font(.caption).foregroundStyle(AppTheme.secondary)
+                } else if message.state == .failed {
+                    Text("回复未完成 · 本轮未应用属性").font(.caption).foregroundStyle(AppTheme.terracotta)
+                }
+                if let date = message.date { Text(date.formatted(date: .omitted, time: .shortened)).font(.caption2).foregroundStyle(AppTheme.secondary) }
+            }.padding(14).background(message.isUser ? AppTheme.sage : AppTheme.surface, in: RoundedRectangle(cornerRadius: 18))
+            if !message.isUser { Spacer(minLength: 8) }
+        }
+    }
+
+    private var conversationMaterials: some View {
+        VStack(alignment: .leading, spacing: 16) {
                 if !conflicts.isEmpty, let proposal = conflictingTask {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("这些属性在 AI 处理期间有新修改，已保留当前值").font(.headline)
@@ -156,21 +232,68 @@ struct TaskEditorView: View {
                         } }
                     }
                 }
-                TextField("例如：明天下午三点去取快递", text: $draft.input, axis: .vertical).lineLimit(3...8).padding(14).background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 16))
-                HStack {
-                    Button { if voice.recording { voice.stop() } else { lastVoiceInput = draft.input; voicePrefix = draft.input.isEmpty ? "" : draft.input + "\n"; Task { await voice.start() } } } label: { Label(voice.recording ? "结束录音" : "语音", systemImage: voice.recording ? "stop.circle.fill" : "mic") }.disabled(voice.starting)
-                    PhotosPicker(selection: $photos, maxSelectionCount: 3, matching: .images) { Image(systemName: "photo") }.accessibilityLabel("从相册添加图片")
-                    Menu {
-                        Button("拍摄") { if UIImagePickerController.isSourceTypeAvailable(.camera) { camera = true } else { error = "此设备没有可用相机" } }
-                        Button("粘贴图片") { if let image = UIPasteboard.general.image, let data = image.jpegData(compressionQuality: 0.9) { do { try addImage(data) } catch { self.error = error.localizedDescription } } else { error = "剪贴板中没有可用图片" } }
-                    } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel("拍摄或粘贴图片")
-                    Spacer()
-                    Button("整理任务", action: submit).buttonStyle(.borderedProminent).disabled(processing || voice.recording || (draft.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && pendingImages.isEmpty))
-                }.buttonStyle(.bordered)
-                Text("\(draft.input.count) / 2,000 字 · 录音最多 2 分钟").font(.caption).foregroundStyle(AppTheme.secondary)
-            }.padding()
-        }.scrollDismissesKeyboard(.interactively)
+        }
     }
+
+    private var composer: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let issue = speechError ?? voice.error {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(issue).font(.caption).foregroundStyle(AppTheme.terracotta)
+                    HStack {
+                        Button("选择语音模型") { inputFocused = false; modelSettings = true }
+                        if voice.needsSettings { Button("打开应用权限") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } } }
+                        Spacer()
+                        Button { speechError = nil; voice.error = nil } label: { Image(systemName: "xmark") }.accessibilityLabel("收起语音提示")
+                    }.font(.caption)
+                }
+            }
+            if let audio = draft.audio {
+                HStack(spacing: 10) {
+                    Label(recorder.recording ? "录音 \(recorder.seconds) 秒" : transcribing ? "正在转写录音…" : "录音已保留", systemImage: "waveform").font(.caption)
+                    Spacer()
+                    if !recorder.recording {
+                        if transcribing { Button("停止", action: cancelSpeech) }
+                        else if audio.transcript != nil { Button("插入文字", action: insertTranscript) }
+                        else { Button("重试转写", action: transcribeAudio) }
+                        Button { removeAudio() } label: { Image(systemName: "trash") }.accessibilityLabel("删除录音")
+                    }
+                }.font(.caption)
+                if let transcript = audio.transcript {
+                    TextField("核对转写文字", text: Binding(get: { draft.audio?.transcript ?? transcript }, set: { draft.audio?.transcript = $0; persistDraft() }), axis: .vertical).lineLimit(2...4).font(.caption)
+                }
+            }
+            TextField("说说你想做的事…", text: $draft.input, axis: .vertical)
+                .lineLimit(1...5).focused($inputFocused).padding(12)
+                .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+            HStack(spacing: 16) {
+                Button(action: toggleVoice) { Image(systemName: isRecording ? "stop.circle.fill" : "mic").font(.title3).frame(minWidth: 32, minHeight: 36) }
+                    .disabled(voice.starting || recorder.starting || transcribing)
+                    .accessibilityLabel(isRecording ? "结束录音" : "语音输入")
+                PhotosPicker(selection: $photos, maxSelectionCount: 3, matching: .images) { Image(systemName: "photo").font(.title3).frame(minWidth: 32, minHeight: 36) }.accessibilityLabel("从相册添加图片")
+                Menu {
+                    Button("拍摄") { inputFocused = false; if UIImagePickerController.isSourceTypeAvailable(.camera) { camera = true } else { error = "此设备没有可用相机" } }
+                    Button("粘贴图片") { if let image = UIPasteboard.general.image, let data = image.jpegData(compressionQuality: 0.9) { do { try addImage(data) } catch { self.error = error.localizedDescription } } else { error = "剪贴板中没有可用图片" } }
+                } label: { Image(systemName: "plus.circle").font(.title3).frame(minWidth: 32, minHeight: 36) }.accessibilityLabel("拍摄或粘贴图片")
+                Spacer(minLength: 0)
+                Button { if processing { cancelAnalysis(); persistDraft() } else { submit() } } label: {
+                    Label(processing ? "停止" : "发送", systemImage: processing ? "stop.fill" : "arrow.up")
+                        .font(.subheadline.weight(.semibold)).padding(.horizontal, 14).padding(.vertical, 10)
+                        .foregroundStyle(AppTheme.surface).background(AppTheme.pine, in: Capsule())
+                }.disabled(!processing && (isRecording || transcribing || (draft.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && pendingImages.isEmpty)))
+                    .opacity(!processing && draft.input.isEmpty && pendingImages.isEmpty ? 0.5 : 1)
+            }.buttonStyle(.plain)
+            HStack {
+                Text("\(draft.input.count) / 2,000 字").foregroundStyle(draft.input.count > 2000 ? AppTheme.terracotta : AppTheme.secondary)
+                Spacer()
+                Text("离开自动保留草稿").foregroundStyle(AppTheme.secondary)
+            }.font(.caption2)
+        }.padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 8)
+            .background(AppTheme.canvas)
+            .overlay(alignment: .top) { Rectangle().fill(AppTheme.line).frame(height: 1) }
+    }
+
+    private var isRecording: Bool { voice.recording || recorder.recording }
 
     private var form: some View {
         Form {
@@ -276,14 +399,85 @@ struct TaskEditorView: View {
         if field == .tags { return task.tags.map { "\($0.key):\($0.value)" }.joined(separator: "、") }
         return field.value(task)
     }
-    private func persistDraft() {
-        guard !finished else { return }
+    @discardableResult
+    private func persistDraft() -> Bool {
+        guard !finished else { return true }
         var value = draft
         value.unresolvedConflicts = conflicts; value.conflictProposal = conflictingTask
         value.selectedImageIDs = draft.images.filter { pendingImages.contains($0.id) }.map(\.id)
-        do { try store.saveDraft(value) } catch { self.error = "草稿保存失败：\(error.localizedDescription)" }
+        do { try store.saveDraft(value); return true } catch { self.error = "草稿保存失败：\(error.localizedDescription)"; return false }
     }
-    private func cancelAnalysis() { requestID = UUID(); analysis?.cancel(); analysis = nil; processing = false }
+    private func cancelAnalysis() {
+        requestID = UUID(); analysis?.cancel(); analysis = nil
+        if processing, let id = assistantID, let index = draft.messages.firstIndex(where: { $0.id == id }) { draft.messages[index].state = .stopped }
+        if processing, draft.input.isEmpty, let sentInput { draft.input = sentInput }
+        processing = false; assistantID = nil; sentInput = nil
+    }
+    private func leaveKeepingDraft() {
+        inputFocused = false; editorVisible = false
+        cancelAnalysis(); cancelSpeech(); voice.cancel(); recorder.stop()
+        guard persistDraft() else { editorVisible = true; return }
+        finished = true; onClose()
+    }
+    private func openModelSettings() {
+        inputFocused = false; cancelAnalysis(); cancelSpeech(); voice.cancel(); recorder.stop()
+        guard persistDraft() else { return }
+        openSettingsAfterDismiss = true; modelSettings = false
+    }
+    private func cancelSpeech() { speechID = UUID(); speechTask?.cancel(); speechTask = nil; transcribing = false }
+    private func toggleVoice() {
+        inputFocused = false; speechError = nil; voice.error = nil
+        if recorder.recording { recorder.stop(); transcribeAudio(); return }
+        if voice.recording { voice.stop(); return }
+        guard !transcribing else { return }
+        if registry.selected(.transcription) != nil {
+            guard draft.audio == nil else { speechError = "请先转写或删除已保留的录音，再录制下一段。"; return }
+            do { _ = try registry.resolve(.transcription) }
+            catch { speechError = error.localizedDescription; modelSettings = true; return }
+            let audio = TaskAudio(filename: "audio-\(UUID()).m4a")
+            Task {
+                do {
+                    try await recorder.start(at: store.audioURL(audio))
+                    guard editorVisible else { recorder.stop(); store.removeAudio(audio); return }
+                    draft.audio = audio; persistDraft()
+                } catch is CancellationError { store.removeAudio(audio) }
+                catch { speechError = error.localizedDescription; store.removeAudio(audio) }
+            }
+        } else {
+            lastVoiceInput = draft.input; voicePrefix = draft.input.isEmpty ? "" : draft.input + "\n"
+            Task { await voice.start() }
+        }
+    }
+    private func transcribeAudio() {
+        guard let audio = draft.audio, !recorder.recording, !transcribing else { return }
+        cancelSpeech(); speechError = nil; let token = speechID
+        let originalInput = draft.input
+        transcribing = true
+        speechTask = Task {
+            do {
+                let text = try await ConfiguredModelService.shared.transcribe(audio: store.audioURL(audio))
+                try Task.checkCancellation()
+                guard token == speechID, draft.audio?.id == audio.id else { return }
+                transcribing = false; draft.audio?.transcript = text
+                if draft.input == originalInput { insertTranscript() } else { persistDraft() }
+            } catch {
+                guard token == speechID else { return }; transcribing = false
+                speechError = error is CancellationError ? "转写已停止，录音已保留，可重试或删除。" : "\(error.localizedDescription)。录音已保留，可重试或删除。"
+                persistDraft()
+            }
+        }
+    }
+    private func insertTranscript() {
+        guard let text = draft.audio?.transcript else { return }
+        let combined = draft.input + (draft.input.isEmpty ? "" : "\n") + text
+        guard combined.count <= 2000 else { speechError = "转写文字与当前输入超过 2,000 字，请先编辑录音转写文字，再插入；没有截断或删除录音。"; persistDraft(); return }
+        draft.input = combined; removeAudio(); inputFocused = true
+    }
+    private func removeAudio() {
+        cancelSpeech(); recorder.stop()
+        if let audio = draft.audio { store.removeAudio(audio) }
+        draft.audio = nil; persistDraft()
+    }
     private func addImage(_ data: Data) throws {
         guard !finished else { return }
         guard draft.images.count < 10, pendingImages.count < 3 else { throw TaskFailure("每轮最多 3 张图片，一份草稿最多保留 10 张") }
@@ -297,11 +491,21 @@ struct TaskEditorView: View {
         guard selected.allSatisfy({ !$0.text.isEmpty }) else { error = "请先点开本轮图片，明确选择文字提取并核对结果，或取消本轮使用该图"; return }
         let imageText = selected.map(\.text).joined(separator: "\n---\n")
         guard input.count + imageText.count <= 2000 else { error = "本轮合计超过 2,000 字，请编辑识别文字、取消部分图片或分次输入"; return }
-        cancelAnalysis(); processing = true
-        let token = requestID, base = draft.task, revisions = draft.fieldRevisions
+        guard !input.isEmpty || !selected.isEmpty else { return }
+        cancelAnalysis(); inputFocused = false; processing = true; followReply = true
+        let token = requestID, base = draft.task, revisions = draft.fieldRevisions, dialogue = draft.messages
+        sentInput = input
+        draft.messages.append(TaskMessage(isUser: true, text: input + (selected.isEmpty ? "" : "\n[\(selected.count) 张图片的文字资料]"), state: .complete))
+        let assistant = TaskMessage(isUser: false, text: "", state: .receiving)
+        assistantID = assistant.id; draft.messages.append(assistant); draft.input = ""
+        guard persistDraft() else { cancelAnalysis(); return }
         analysis = Task {
             do {
-                let proposal = try await TaskAI.propose(input: input, imageText: imageText, draft: base, candidates: store.reminders, dialogue: draft.messages)
+                let proposal = try await TaskAI.propose(input: input, imageText: imageText, draft: base, candidates: store.reminders, dialogue: dialogue, onProgress: { text in
+                    guard token == requestID, processing, let index = draft.messages.firstIndex(where: { $0.id == assistant.id }) else { return }
+                    draft.messages[index].text = text
+                    if Date().timeIntervalSince(lastProgressSaved) >= 0.5 { lastProgressSaved = Date(); persistDraft() }
+                })
                 try Task.checkCancellation(); guard token == requestID else { return }
                 var changed = draft.task; conflicts = []; conflictingTask = proposal.task
                 for field in proposal.fields {
@@ -309,18 +513,25 @@ struct TaskEditorView: View {
                     else { field.copy(from: proposal.task, to: &changed) }
                 }
                 draft.task = changed
-                draft.messages.append(TaskMessage(isUser: true, text: input + (selected.isEmpty ? "" : "\n[\(selected.count) 张图片的文字资料]")))
-                let labels = proposal.fields.filter { !conflicts.contains($0) }.map(\.label).joined(separator: "、")
-                draft.messages.append(TaskMessage(isUser: false, text: proposal.message + (labels.isEmpty ? "" : "\n草稿已更新：\(labels)。请检查后保存。")))
-                draft.input = ""; pendingImages = []; processing = false; persistDraft()
+                if let index = draft.messages.firstIndex(where: { $0.id == assistant.id }) {
+                    draft.messages[index].text = proposal.message + (conflicts.isEmpty ? "" : "\n有些属性同时被修改，我保留了你的值，请在下方核对建议。")
+                    draft.messages[index].state = .complete
+                }
+                pendingImages.subtract(selected.map(\.id)); processing = false; assistantID = nil; sentInput = nil; persistDraft()
             } catch {
                 guard token == requestID else { return }; processing = false
-                if !(error is CancellationError) { self.error = error.localizedDescription }
+                if let index = draft.messages.firstIndex(where: { $0.id == assistant.id }) {
+                    draft.messages[index].state = error is CancellationError ? .stopped : .failed
+                    let prefix = draft.messages[index].text.isEmpty ? "" : draft.messages[index].text + "\n\n"
+                    draft.messages[index].text = prefix + (error is CancellationError ? "本轮已停止。" : error.localizedDescription)
+                }
+                if draft.input.isEmpty { draft.input = input }
+                assistantID = nil; sentInput = nil; persistDraft()
             }
         }
     }
     private func prepareSave() {
-        cancelAnalysis(); voice.cancel(); choices = []
+        cancelAnalysis(); cancelSpeech(); voice.cancel(); recorder.stop(); choices = []
         if let base = draft.base, let latest = store.item(base.id) {
             let (_, conflicts) = TaskRules.merge(base: base, draft: draft.task, latest: latest)
             if !conflicts.isEmpty { saveConflicts = conflicts; return }

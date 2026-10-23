@@ -40,6 +40,7 @@
 		B91000000000000000000004 /* ConfiguredModelService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A91000000000000000000004; };
 		B91000000000000000000005 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A91000000000000000000005; };
 		B91000000000000000000006 /* ModelConfigurationEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A91000000000000000000006; };
+		B92000000000000000000001 /* transcription-probe.wav in Resources */ = {isa = PBXBuildFile; fileRef = A92000000000000000000001; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -95,6 +96,7 @@
 		A91000000000000000000004 /* ConfiguredModelService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AI/ConfiguredModelService.swift"; sourceTree = "<group>"; };
 		A91000000000000000000005 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Settings/SettingsView.swift"; sourceTree = "<group>"; };
 		A91000000000000000000006 /* ModelConfigurationEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Settings/ModelConfigurationEditor.swift"; sourceTree = "<group>"; };
+		A92000000000000000000001 /* transcription-probe.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = "Resources/transcription-probe.wav"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -142,6 +144,7 @@
 				A91000000000000000000004 /* ConfiguredModelService.swift */,
 				A91000000000000000000005 /* SettingsView.swift */,
 				A91000000000000000000006 /* ModelConfigurationEditor.swift */,
+				A92000000000000000000001 /* transcription-probe.wav */,
 				A20000000000000000000007 /* App */,
 				A20000000000000000000008 /* Stores */,
 				A20000000000000000000009 /* Views */,
@@ -295,7 +298,7 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		E10000000000000000000003 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		E10000000000000000000003 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (B92000000000000000000001, ); runOnlyForDeploymentPostprocessing = 0; };
 		E10000000000000000000007 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
@@ -392,7 +395,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Venus;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
@@ -421,7 +424,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Venus;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
@@ -450,7 +453,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Venus;
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.venus.VenusTools;
@@ -472,7 +475,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Venus;
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.venus.VenusTools;

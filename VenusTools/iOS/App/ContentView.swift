@@ -1,13 +1,30 @@
 import SwiftUI
 
+enum SettingsRoute: Hashable { case models }
+
+@MainActor
+final class AppNavigation: ObservableObject {
+    @Published var selectedTab = 0
+    @Published var settingsPath: [SettingsRoute] = []
+    @Published private(set) var returnTab: Int?
+    func openModels() {
+        if selectedTab != 4 { returnTab = selectedTab }
+        settingsPath = [.models]; selectedTab = 4
+    }
+    func returnFromSettings() {
+        let tab = returnTab; returnTab = nil; settingsPath = []
+        if let tab { selectedTab = tab }
+    }
+}
+
 struct ContentView: View {
-    @State private var selectedTab = 0
+    @StateObject private var navigation = AppNavigation()
     @StateObject private var focusStore = FocusTimerStore()
     @StateObject private var checklistStore = ChecklistStore()
     @StateObject private var reminderStore = ReminderStore()
 
     var body: some View {
-        TabView(selection: $selectedTab) {
+        TabView(selection: $navigation.selectedTab) {
             RemindersView(store: reminderStore)
                 .tabItem { Label("任务", systemImage: "bell") }
                 .tag(0)
@@ -38,7 +55,8 @@ struct ContentView: View {
                 .tabItem { Label("设置", systemImage: "gearshape") }
                 .tag(4)
         }
-        .onChange(of: reminderStore.notificationTaskID) { _, id in if id != nil { selectedTab = 0 } }
+        .environmentObject(navigation)
+        .onChange(of: reminderStore.notificationTaskID) { _, id in if id != nil { navigation.selectedTab = 0 } }
         .tint(AppTheme.pine)
         .preferredColorScheme(.light)
     }

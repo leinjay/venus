@@ -17,35 +17,54 @@ final class ConfiguredModelService {
             for task in self.requests.values { task.cancel() }
         }
     }
-    func respond(purpose: ModelPurpose, system: String, prompt: String) async throws -> String {
+    func respond(purpose: ModelPurpose, system: String, prompt: String, onProgress: (@MainActor @Sendable (String) -> Void)? = nil) async throws -> String {
         let registry = ModelRegistry.shared, config = try registry.resolve(purpose), epoch = registry.callEpoch
         let credential = try registry.credential(config)
         let id = UUID()
-        let work = Task { try await self.perform(config: config, credential: credential, system: system, prompt: prompt, limit: 60) }
+        let work = Task { try await self.perform(config: config, credential: credential, system: system, prompt: prompt, limit: 60, onProgress: { [weak self] text in
+            guard self?.requests[id] != nil, registry.callEpoch == epoch else { return }
+            onProgress?(text)
+        }) }
         requests[id] = work; defer { requests.removeValue(forKey: id) }
         let output = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
         try Task.checkCancellation()
         guard registry.callEpoch == epoch, try registry.resolve(purpose).fingerprint == config.fingerprint else { throw CancellationError() }
         return output
     }
+    func transcribe(audio url: URL) async throws -> String {
+        let registry = ModelRegistry.shared, config = try registry.resolve(.transcription), epoch = registry.callEpoch
+        guard (try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 20_000_001) <= 20_000_000 else { throw ModelFailure("录音超过 20 MB，请重新录制较短内容") }
+        let audio = try Data(contentsOf: url), credential = try registry.credential(config), id = UUID()
+        let work = Task { try await self.perform(config: config, credential: credential, system: "", prompt: "", limit: 60, audio: audio) }
+        requests[id] = work; defer { requests.removeValue(forKey: id) }
+        let output = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
+        try Task.checkCancellation()
+        guard registry.callEpoch == epoch, try registry.resolve(.transcription).fingerprint == config.fingerprint else { throw CancellationError() }
+        return output
+    }
     func test(config: ModelConfiguration, credential: ModelCredential?) async throws -> String {
         // Always a fixed sample, never task data. Testing grants no task permission.
-        try await perform(config: config, credential: credential, system: "你是连接测试助手。", prompt: "请只回复：连接成功", limit: 60)
+        if config.adapter == .transcription {
+            guard let sample = Bundle.main.url(forResource: "transcription-probe", withExtension: "wav") else { throw ModelFailure("固定音频测试样本缺失") }
+            return try await perform(config: config, credential: credential, system: "", prompt: "", limit: 60, audio: Data(contentsOf: sample), wav: true)
+        }
+        return try await perform(config: config, credential: credential, system: "你是连接测试助手。", prompt: "请只回复：连接成功", limit: 60)
     }
-    private func perform(config: ModelConfiguration, credential: ModelCredential?, system: String, prompt: String, limit: TimeInterval) async throws -> String {
+    private func perform(config: ModelConfiguration, credential: ModelCredential?, system: String, prompt: String, limit: TimeInterval, onProgress: (@MainActor @Sendable (String) -> Void)? = nil, audio: Data? = nil, wav: Bool = false) async throws -> String {
         let overallDeadline = Date().addingTimeInterval(min(Double(config.timeoutSeconds), limit))
         try ModelValidation.validate(config, among: [])
-        guard config.enabled, config.textCapable else { throw ModelFailure("配置已禁用或当前能力不可用") }
+        guard config.enabled, (audio == nil ? config.textCapable : config.adapter == .transcription) else { throw ModelFailure("配置已禁用或当前能力不可用") }
         if config.execution == .onDevice {
             guard config.modelID == LocalQwenService.modelID else { throw ModelFailure("此本机运行库尚未接入") }
-            return try await LocalQwenService.shared.respond(system: system, prompt: prompt, generation: config.generation, timeout: min(Double(config.timeoutSeconds), limit))
+            return try await LocalQwenService.shared.respond(system: system, prompt: prompt, generation: config.generation, timeout: min(Double(config.timeoutSeconds), limit), onProgress: onProgress)
         }
         if config.execution == .lanService, let host = URL(string: config.baseURL)?.host {
             guard try await Self.resolvesPrivately(host) else { throw ModelFailure("局域网域名未解析为私网地址，请检查地址或改为第三方服务") }
         }
         let remaining = overallDeadline.timeIntervalSinceNow
         guard remaining > 0 else { throw ModelFailure("模型调用超时，输入已保留") }
-        var request = try ModelWire.request(config, key: credential?.key, system: system, prompt: prompt, deadline: remaining)
+        var request = try audio.map { try ModelTranscriptionWire.request(config, key: credential?.key, audio: $0, deadline: remaining, wav: wav) }
+            ?? ModelWire.request(config, key: credential?.key, system: system, prompt: prompt, deadline: remaining)
         try ModelRegistry.validateHeaders(credential?.headers ?? [:])
         if !(credential?.headers.isEmpty ?? true), request.url?.scheme != "https" { throw ModelFailure("携带敏感请求头的服务必须使用 HTTPS") }
         for (name, value) in credential?.headers ?? [:] { request.setValue(value, forHTTPHeaderField: name) }
@@ -60,13 +79,23 @@ final class ConfiguredModelService {
             guard let response = response as? HTTPURLResponse else { throw ModelFailure("服务没有返回 HTTP 响应") }
             if (300...399).contains(response.statusCode) { return try ModelWire.response(Data(), config: config, status: response.statusCode) }
             var result = Data()
+            var decoder = ModelStreamDecoder(adapter: config.adapter)
+            let streaming = audio == nil && config.generation.stream && (200...299).contains(response.statusCode)
+            var lastUpdate = Date.distantPast, lastText = ""
             for try await byte in bytes {
                 try Task.checkCancellation()
                 guard Date() < deadline else { throw ModelFailure("模型调用超时，输入已保留") }
                 guard result.count < 2_000_000 else { throw ModelFailure("响应过大，请降低输出上限") }
                 result.append(byte)
+                if streaming, try decoder.append(byte), decoder.text != lastText, Date().timeIntervalSince(lastUpdate) >= 0.08 {
+                    lastUpdate = Date(); lastText = decoder.text; onProgress?(decoder.text)
+                }
             }
             try Task.checkCancellation()
+            if audio != nil { return try ModelTranscriptionWire.response(result, config: config, status: response.statusCode) }
+            if streaming {
+                let output = try decoder.finish(); onProgress?(output); return output
+            }
             return try ModelWire.response(result, config: config, status: response.statusCode)
         } catch let failure as ModelFailure { throw failure }
         catch is CancellationError { throw CancellationError() }

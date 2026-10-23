@@ -64,9 +64,9 @@ final class ModelRegistry: ObservableObject {
     func configuration(_ id: UUID?) -> ModelConfiguration? { data.configurations.first { $0.id == id } }
     func selected(_ purpose: ModelPurpose) -> ModelConfiguration? { configuration(data.bindings[purpose.binding]) }
     func credential(_ configuration: ModelConfiguration) throws -> ModelCredential? { try ModelKeychain.read(configuration.credentialRef) }
-    func references(_ id: UUID) -> [ModelPurpose] { [.dialogue, .summary].filter { data.bindings[$0.binding] == id } }
+    func references(_ id: UUID) -> [ModelPurpose] { [.dialogue, .summary, .transcription].filter { data.bindings[$0.binding] == id } }
     func status(_ config: ModelConfiguration) -> String {
-        if !config.enabled { return config.textCapable ? "已禁用" : "模板暂不可用" }
+        if !config.enabled { return config.execution == .onDevice && !config.textCapable ? "尚未接入运行能力" : "已禁用" }
         if config.execution == .onDevice {
             if config.modelID != LocalQwenService.modelID { return "此本机运行库尚未接入" }
             if !LocalQwenService.shared.ready { return "模型未下载或未验证" }
@@ -74,7 +74,7 @@ final class ModelRegistry: ObservableObject {
         }
         if config.requiresKey, (try? credential(config))?.key.isEmpty != false { return "请填写或导入密钥" }
         guard let test = config.validTest else { return "未测试" }
-        return test.success ? "文字测试成功" : "测试失败"
+        return test.success ? (config.adapter == .transcription ? "音频转写测试成功" : "文字测试成功") : "测试失败"
     }
     func save(_ value: ModelConfiguration, credential: ModelCredential?) throws {
         var config = value; config.name = config.name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -109,14 +109,14 @@ final class ModelRegistry: ObservableObject {
         } catch { if let addedReference { ModelKeychain.delete(addedReference) }; throw error }
     }
     func bind(_ id: UUID?, to purpose: ModelPurpose) throws {
-        if let id { guard let config = configuration(id), config.enabled, config.textCapable else { throw ModelFailure("请选择已启用的文字配置") } }
+        if let id { guard let config = configuration(id), config.enabled, purpose.accepts(config) else { throw ModelFailure("请选择已启用且支持此功能的模型配置") } }
         guard data.bindings[purpose.binding] != id else { return }
         var next = data; next.bindings[purpose.binding] = id
         for affected in ModelPurpose.allCases where affected.binding == purpose.binding { next.grants.removeValue(forKey: affected.rawValue) }
         try write(next); data = next; callEpoch += 1
     }
     func delete(_ config: ModelConfiguration, replacingWith replacement: UUID? = nil) throws {
-        if let replacement { guard replacement != config.id, let target = configuration(replacement), target.enabled, target.textCapable else { throw ModelFailure("替代配置必须是其他已启用文字配置") } }
+        if let replacement { guard replacement != config.id, let target = configuration(replacement), target.enabled, references(config.id).allSatisfy({ $0.accepts(target) }) else { throw ModelFailure("替代配置须支持所有被引用功能") } }
         var next = data
         for purpose in ModelPurpose.allCases where next.bindings[purpose.binding] == config.id {
             next.bindings[purpose.binding] = replacement; next.grants.removeValue(forKey: purpose.rawValue)
@@ -135,7 +135,7 @@ final class ModelRegistry: ObservableObject {
     }
     func resolve(_ purpose: ModelPurpose) throws -> ModelConfiguration {
         guard let config = selected(purpose) else { throw ModelFailure("\(purpose.title)尚未配置模型，请在设置中选择") }
-        guard config.enabled, config.textCapable else { throw ModelFailure("所选配置已禁用或不支持文字，请重新选择") }
+        guard config.enabled, purpose.accepts(config) else { throw ModelFailure("所选配置已禁用或不支持此功能，请重新选择") }
         guard authorized(purpose, config: config) else { throw ModelFailure("请先在模型卡片中确认此功能的外发授权") }
         return config
     }

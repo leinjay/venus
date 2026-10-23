@@ -86,6 +86,7 @@ struct ModelConfigurationEditor: View {
                 Button("OpenAI 兼容服务") { preset("兼容服务", .openAI, "https://api.openai.com/v1", "") }
                 Button("Anthropic") { preset("Anthropic", .anthropic, "https://api.anthropic.com/v1", "") }
                 Button("Gemini") { preset("Google", .gemini, "https://generativelanguage.googleapis.com/v1beta", "") }
+                Button("音频转写服务") { preset("音频转写兼容服务", .transcription, config.execution == .lanService ? "http://192.168.1.100:8000/v1" : "https://api.openai.com/v1", "whisper-1", requiresKey: config.execution != .lanService) }
                 if config.execution == .lanService {
                     Button("Ollama") { preset("Ollama", .openAI, "http://192.168.1.100:11434/v1", "qwen3", requiresKey: false) }
                     Button("LM Studio") { preset("LM Studio", .openAI, "http://192.168.1.100:1234/v1", "", requiresKey: false) }
@@ -93,13 +94,14 @@ struct ModelConfigurationEditor: View {
             }
             TextField("提供方", text: $config.provider)
             Picker("协议", selection: Binding(get: { config.adapter }, set: { nextAdapter = $0; askReset = true })) {
-                ForEach(ModelAdapter.allCases.filter { $0 != .mlx && (config.execution != .lanService || $0 == .openAI) }) { Text($0.title).tag($0) }
+                ForEach(ModelAdapter.allCases.filter { $0 != .mlx && (config.execution != .lanService || $0 == .openAI || $0 == .transcription) }) { Text($0.title).tag($0) }
             }
             TextField("API 根地址", text: $config.baseURL).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
             TextField("实际模型 ID / 部署名称", text: $config.modelID).textInputAutocapitalization(.never).autocorrectionDisabled()
-            if config.adapter == .openAI { Toggle("使用 Bearer 密钥", isOn: $config.requiresKey) }
+            if config.adapter == .openAI || config.adapter == .transcription { Toggle("使用 Bearer 密钥", isOn: $config.requiresKey) }
             if config.requiresKey { SecureField("API Key（安全保存）", text: $key).textInputAutocapitalization(.never).autocorrectionDisabled() }
             if config.adapter == .anthropic { TextField("API 版本", text: $config.apiVersion) }
+            if config.adapter == .transcription { Text("用于语音转文字：服务须支持 multipart /audio/transcriptions，返回 JSON text。文字聊天模型无法直接转写音频。录音外发由‘任务语音转文字’单独授权。").font(.caption).foregroundStyle(.secondary) }
             Text(config.execution == .lanService ? "localhost / 127.0.0.1 指手机自身。请使用电脑私网地址并开放服务；HTTP 会明文传输，携带真实密钥时必须 HTTPS。若服务转发云端，请选择第三方。" : "内容将发送到填写的服务；保存不会发起请求，工具首次使用仍需单独授权。").font(.caption).foregroundStyle(.secondary)
         }
     }
@@ -108,8 +110,8 @@ struct ModelConfigurationEditor: View {
             DisclosureGroup("高级参数（留空使用默认值）") {
                 Stepper("请求超时：\(config.timeoutSeconds) 秒", value: $config.timeoutSeconds, in: 10...120, step: 5)
                 Text("任务单次调用仍最多 60 秒，采用两者中较小值。").font(.caption)
-                TextField("输出 token 上限", value: $config.generation.maxTokens, format: .number).keyboardType(.numberPad)
-                if config.adapter != .anthropic {
+                if config.adapter != .transcription { TextField("输出 token 上限", value: $config.generation.maxTokens, format: .number).keyboardType(.numberPad) }
+                if config.adapter != .anthropic && config.adapter != .transcription {
                     TextField("温度", value: $config.generation.temperature, format: .number).keyboardType(.decimalPad)
                     TextField("Top-p", value: $config.generation.topP, format: .number).keyboardType(.decimalPad)
                 }
@@ -117,10 +119,12 @@ struct ModelConfigurationEditor: View {
                     TextField("重复惩罚", value: $config.generation.repetitionPenalty, format: .number).keyboardType(.decimalPad)
                 } else {
                     if config.adapter == .openAI { Picker("输出上限参数", selection: $config.generation.tokenField) { Text("max_tokens").tag("max_tokens"); Text("max_completion_tokens").tag("max_completion_tokens") } }
-                    TextField("停止序列（每行一个，最多 4 个）", text: Binding(get: { config.generation.stop.joined(separator: "\n") }, set: { config.generation.stop = $0.components(separatedBy: "\n").filter { !$0.isEmpty } }), axis: .vertical)
-                    Toggle("使用流式协议", isOn: $config.generation.stream)
-                    if config.adapter != .anthropic { Toggle("请求 JSON 输出（须服务支持）", isOn: $config.generation.jsonOutput) }
-                    Text("高级能力未单独验证；文字测试不会认证图片、工具调用或 JSON 模式。未知模型先保留服务商默认值。").font(.caption).foregroundStyle(.secondary)
+                    if config.adapter != .transcription {
+                        TextField("停止序列（每行一个，最多 4 个）", text: Binding(get: { config.generation.stop.joined(separator: "\n") }, set: { config.generation.stop = $0.components(separatedBy: "\n").filter { !$0.isEmpty } }), axis: .vertical)
+                        Toggle("使用流式协议", isOn: $config.generation.stream)
+                        if config.adapter != .anthropic { Toggle("请求 JSON 输出（须服务支持）", isOn: $config.generation.jsonOutput) }
+                        Text("高级能力未单独验证；文字测试不会认证图片、工具调用或 JSON 模式。未知模型先保留服务商默认值。").font(.caption).foregroundStyle(.secondary)
+                    }
                     ForEach($headers) { $header in
                         VStack { TextField("请求头名称", text: $header.name).textInputAutocapitalization(.never).autocorrectionDisabled(); SecureField("请求头敏感值", text: $header.value) }
                     }
@@ -131,10 +135,10 @@ struct ModelConfigurationEditor: View {
     }
     private var testSection: some View {
         Section("测试当前表单") {
-            Text("仅发送固定的‘连接成功’测试文字，不读取任务。外部调用可能产生服务费用；测试不会保存表单或授权任务外发。").font(.caption).foregroundStyle(.secondary)
+            Text(config.adapter == .transcription ? "仅发送内置的英文连接测试音频，不读取任务或真实录音。测试可能产生服务费用，不会保存表单或授权后续录音外发。" : "仅发送固定的‘连接成功’测试文字，不读取任务。外部调用可能产生服务费用；测试不会保存表单或授权任务外发。").font(.caption).foregroundStyle(.secondary)
             if testing { HStack { ProgressView(); Text("测试中，最多 60 秒"); Button("取消", action: cancelTest) } }
             else { Button("测试配置", action: test) }
-            if let result = testCurrent { Text((result.success ? "文字测试成功：" : "测试失败：") + result.message).font(.caption); Text(result.date.formatted()).font(.caption2).foregroundStyle(.secondary) }
+            if let result = testCurrent { Text((result.success ? (config.adapter == .transcription ? "转写测试成功：" : "文字测试成功：") : "测试失败：") + result.message).font(.caption); Text(result.date.formatted()).font(.caption2).foregroundStyle(.secondary) }
         }
     }
     private func credentialsChanged() { config.credentialRef = config.execution == .onDevice ? nil : UUID().uuidString; config.test = nil; cancelTest() }
@@ -147,7 +151,7 @@ struct ModelConfigurationEditor: View {
         let execution = nextExecution ?? config.execution, adapter = nextAdapter ?? (execution == .onDevice ? .mlx : .openAI)
         config.execution = execution; config.adapter = adapter; config.generation = ModelGeneration(); config.credentialRef = nil; config.test = nil
         config.modelID = execution == .onDevice ? LocalQwenService.modelID : ""; config.baseURL = ""; config.provider = execution == .onDevice ? "MLX" : "自定义服务"
-        config.requiresKey = execution == .thirdParty || adapter != .openAI && execution != .onDevice; config.textCapable = true
+        config.requiresKey = execution == .thirdParty || adapter != .openAI && adapter != .transcription && execution != .onDevice; config.textCapable = adapter != .transcription
         key = ""; headers = []; nextExecution = nil; nextAdapter = nil
     }
     private func preset(_ provider: String, _ adapter: ModelAdapter, _ url: String, _ modelID: String, requiresKey: Bool = true) {
@@ -155,6 +159,7 @@ struct ModelConfigurationEditor: View {
     }
     private func applyPreset(_ provider: String, _ adapter: ModelAdapter, _ url: String, _ modelID: String, requiresKey: Bool) {
         cancelTest(); config.provider = provider; config.adapter = adapter; config.baseURL = url; config.modelID = modelID
+        config.textCapable = adapter != .transcription
         config.generation = ModelGeneration(); config.requiresKey = requiresKey; config.credentialRef = nil; key = ""; headers = []; config.test = nil
     }
     private func save() {

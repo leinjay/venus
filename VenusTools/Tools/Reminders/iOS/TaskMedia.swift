@@ -9,6 +9,7 @@ import ImageIO
 final class TaskVoiceInput: ObservableObject {
     @Published var text = ""
     @Published var error: String?
+    @Published private(set) var needsSettings = false
     @Published private(set) var recording = false
     @Published private(set) var starting = false
     private let engine = AVAudioEngine()
@@ -21,13 +22,14 @@ final class TaskVoiceInput: ObservableObject {
     func start() async {
         guard !starting, !recording else { return }
         cancel()
+        error = nil; needsSettings = false
         let identity = self.identity
         starting = true
         defer { starting = false }
         let authorized = await withCheckedContinuation { continuation in SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0 == .authorized) } }
         let microphone = await withCheckedContinuation { continuation in AVAudioSession.sharedInstance().requestRecordPermission { continuation.resume(returning: $0) } }
         guard identity == self.identity else { return }
-        guard authorized, microphone else { error = "请在系统设置中允许麦克风与语音识别，仍可直接输入文字"; return }
+        guard authorized, microphone else { needsSettings = true; error = "请在 iPhone 设置中允许 Venus 使用麦克风与语音识别。也可改选音频转写模型；当前文字已保留。"; return }
         guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: "zh-CN")), recognizer.isAvailable, recognizer.supportsOnDeviceRecognition else {
             error = "当前设备暂不支持普通话离线识别，请使用文字输入"; return
         }
@@ -48,7 +50,12 @@ final class TaskVoiceInput: ObservableObject {
                     if let result { self.text = result.bestTranscription.formattedString }
                     if result?.isFinal == true || failure != nil {
                         self.stop()
-                        if let failure { self.error = "语音识别已停止：\(failure.localizedDescription)，已识别文字保留" }
+                        if let failure {
+                            let issue = failure as NSError
+                            if issue.domain == "kLSRErrorDomain", issue.code == 301 { return }
+                            self.needsSettings = issue.code == 201 || issue.code == 1700
+                            self.error = TaskSpeechIssue.message(domain: issue.domain, code: issue.code)
+                        }
                     }
                 }
             }
@@ -62,6 +69,45 @@ final class TaskVoiceInput: ObservableObject {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
     func cancel() { identity = UUID(); stop(); recognition?.cancel(); recognition = nil; request = nil }
+}
+
+@MainActor
+final class TaskAudioRecorder: ObservableObject {
+    @Published private(set) var recording = false
+    @Published private(set) var starting = false
+    @Published private(set) var seconds = 0
+    private var recorder: AVAudioRecorder?
+    private var timer: Task<Void, Never>?
+    private var identity = UUID()
+
+    func start(at url: URL) async throws {
+        guard !starting && !recording else { return }
+        identity = UUID(); let token = identity; starting = true
+        defer { starting = false }
+        let allowed = await withCheckedContinuation { continuation in AVAudioSession.sharedInstance().requestRecordPermission { continuation.resume(returning: $0) } }
+        guard token == identity else { throw CancellationError() }
+        guard allowed else { throw TaskFailure("请在 iPhone 设置中允许 Venus 使用麦克风；音频模型转写不需要开启 Siri。") }
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(.record, mode: .default, options: .duckOthers); try session.setActive(true)
+            let recorder = try AVAudioRecorder(url: url, settings: [AVFormatIDKey: Int(kAudioFormatMPEG4AAC), AVSampleRateKey: 16000, AVNumberOfChannelsKey: 1, AVEncoderBitRateKey: 64000])
+            guard recorder.prepareToRecord(), recorder.record() else { throw TaskFailure("麦克风录音未能启动，请重试") }
+            self.recorder = recorder; seconds = 0; recording = true
+            timer = Task { [weak self] in
+                for second in 1...120 {
+                    do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                    guard let self, token == self.identity else { return }
+                    self.seconds = second
+                }
+                self?.stop()
+            }
+        } catch { stop(); throw error }
+    }
+    func stop() {
+        identity = UUID(); timer?.cancel(); timer = nil
+        recorder?.stop(); recorder = nil; recording = false
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
 }
 
 enum TaskImageReader {

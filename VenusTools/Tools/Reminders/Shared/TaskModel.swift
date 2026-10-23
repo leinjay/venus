@@ -182,10 +182,54 @@ struct TaskVersion: Codable, Identifiable {
     var task: ReminderItem
 }
 
-struct TaskMessage: Codable, Identifiable {
+enum TaskMessageState: String, Codable { case receiving, complete, stopped, failed }
+
+struct TaskMessage: Codable, Identifiable, Equatable {
     var id = UUID()
     var isUser: Bool
     var text: String
+    var date: Date? = Date()
+    var state: TaskMessageState?
+}
+
+struct TaskConversation: Codable, Identifiable {
+    var id = UUID()
+    var taskID: UUID
+    var messages: [TaskMessage] = []
+    var updatedAt = Date()
+
+    static func recovered(_ messages: [TaskMessage]) -> [TaskMessage] {
+        messages.map { message in
+            var value = message
+            if value.state == .receiving { value.state = .stopped }
+            return value
+        }
+    }
+}
+
+struct TaskConversationArchive {
+    let directory: URL
+    private func file(_ taskID: UUID) -> URL { directory.appendingPathComponent("conversation-\(taskID.uuidString).json") }
+    func load(_ taskID: UUID) throws -> TaskConversation? {
+        let url = file(taskID)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        let value = try JSONDecoder().decode(TaskConversation.self, from: Data(contentsOf: url))
+        guard value.taskID == taskID else { throw TaskFailure("对话归属校验失败，原文件已保留") }
+        return value
+    }
+    func save(_ value: TaskConversation) throws {
+        if let old = try load(value.taskID), old.id != value.id { throw TaskFailure("会话标识不一致，原对话已保留") }
+        var snapshot = value; snapshot.messages = TaskConversation.recovered(value.messages)
+        var options: Data.WritingOptions = [.atomic]
+        #if os(iOS)
+        options.insert(.completeFileProtectionUntilFirstUserAuthentication)
+        #endif
+        try JSONEncoder().encode(snapshot).write(to: file(value.taskID), options: options)
+    }
+    func remove(_ taskID: UUID) throws {
+        let url = file(taskID)
+        if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+    }
 }
 
 struct TaskImage: Codable, Identifiable, Equatable {
@@ -206,7 +250,30 @@ struct TaskDraft: Codable {
     var unresolvedConflicts: [TaskField]?
     var conflictProposal: ReminderItem?
     var selectedImageIDs: [UUID]?
+    var conversationID: UUID?
+    var audio: TaskAudio?
     var key: String { base?.id.uuidString ?? "new" }
+    var hasPendingEdits: Bool {
+        base == nil || task != base || !input.isEmpty || !images.isEmpty || audio != nil || !(unresolvedConflicts ?? []).isEmpty
+    }
+}
+
+struct TaskAudio: Codable, Identifiable, Equatable {
+    var id = UUID()
+    var filename: String
+    var transcript: String?
+}
+
+enum TaskSpeechIssue {
+    static func message(domain: String, code: Int) -> String {
+        if domain == "kLSRErrorDomain" && code == 201 {
+            return "系统听写已关闭。请前往 iPhone 设置 → 通用 → 键盘 → 启用听写，并检查 Siri 与屏幕使用时间限制；也可在模型入口改选音频转写模型，无需 Siri。已识别文字保留。"
+        }
+        if domain == "kLSRErrorDomain" && code == 102 { return "系统尚未安装离线语音资源，请检查听写语言，或改选已配置的音频转写模型。" }
+        if code == 1700 { return "系统未授权语音识别，请在 iPhone 设置中检查 Venus 权限，或改选音频转写模型。" }
+        if code == 1110 { return "没有听清语音，请靠近麦克风重试；已识别文字保留。" }
+        return "系统语音识别中断，请重试或改选音频转写模型；已识别文字保留。"
+    }
 }
 
 struct CompletionOperation: Codable, Identifiable {

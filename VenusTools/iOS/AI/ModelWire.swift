@@ -37,7 +37,7 @@ enum ModelWire {
             if !g.stop.isEmpty { generation["stopSequences"] = g.stop }
             if g.jsonOutput { generation["responseMimeType"] = "application/json" }
             if !generation.isEmpty { body["generationConfig"] = generation }
-        case .mlx: throw ModelFailure("不支持的网络协议")
+        case .mlx, .transcription: throw ModelFailure("此配置不支持文字对话，请选择文字模型")
         }
         guard let url = URL(string: address) else { throw ModelFailure("服务地址无效") }
         var request = URLRequest(url: url, timeoutInterval: min(Double(config.timeoutSeconds), deadline))
@@ -47,7 +47,7 @@ enum ModelWire {
             case .openAI: request.setValue("Bearer " + key, forHTTPHeaderField: "Authorization")
             case .anthropic: request.setValue(key, forHTTPHeaderField: "x-api-key")
             case .gemini: request.setValue(key, forHTTPHeaderField: "x-goog-api-key")
-            case .mlx: break
+            case .mlx, .transcription: break
             }
         }
         if config.adapter == .anthropic { request.setValue(config.apiVersion, forHTTPHeaderField: "anthropic-version") }
@@ -80,7 +80,7 @@ enum ModelWire {
         return text
     }
 
-    private static func content(_ object: [String: Any], adapter: ModelAdapter) throws -> String {
+    static func content(_ object: [String: Any], adapter: ModelAdapter) throws -> String {
         switch adapter {
         case .openAI:
             guard let first = (object["choices"] as? [[String: Any]])?.first else { return "" }
@@ -97,23 +97,149 @@ enum ModelWire {
             guard let candidate = (object["candidates"] as? [[String: Any]])?.first else { return "" }
             if candidate["finishReason"] as? String == "MAX_TOKENS" { throw ModelFailure("输出被截断，请增加输出上限或缩短输入") }
             return ((candidate["content"] as? [String: Any])?["parts"] as? [[String: Any]] ?? []).filter { $0["thought"] as? Bool != true }.compactMap { $0["text"] as? String }.joined()
-        case .mlx: return ""
+        case .mlx, .transcription: return ""
         }
     }
     private static func stream(_ data: Data, config: ModelConfiguration) throws -> String {
-        guard let raw = String(data: data, encoding: .utf8) else { throw ModelFailure("流式响应编码无效") }
-        var result = "", finished = false
-        for line in raw.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n") {
-            if line.hasPrefix("event:") { continue }
-            guard line.hasPrefix("data:") else { continue }
-            let text = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
-            if text == "[DONE]", config.adapter == .openAI { finished = true; continue }
-            guard let json = text.data(using: .utf8), let object = try? JSONSerialization.jsonObject(with: json) as? [String: Any], object["error"] == nil else { throw ModelFailure("流式响应包含错误或无效片段") }
-            result += try content(object, adapter: config.adapter)
-            if config.adapter == .gemini, let candidates = object["candidates"] as? [[String: Any]], candidates.first?["finishReason"] as? String == "STOP" { finished = true }
-            if config.adapter == .anthropic, object["type"] as? String == "message_stop" { finished = true }
+        var decoder = ModelStreamDecoder(adapter: config.adapter)
+        for byte in data { _ = try decoder.append(byte) }
+        return try decoder.finish()
+    }
+}
+
+/// Bytes may split UTF-8 characters or SSE lines. Only decoded content reaches callers.
+struct ModelStreamDecoder {
+    let adapter: ModelAdapter
+    private var line = Data()
+    private var dataLines: [String] = []
+    private var byteCount = 0
+    private(set) var text = ""
+    private(set) var packets = 0
+    private var terminated = false
+
+    mutating func append(_ byte: UInt8) throws -> Bool {
+        byteCount += 1
+        guard byteCount <= 2_000_000 else { throw ModelFailure("响应过大，请降低输出上限") }
+        if byte != 10 { line.append(byte); return false }
+        return try consumeLine()
+    }
+    private mutating func consumeLine() throws -> Bool {
+        if line.last == 13 { line.removeLast() }
+        guard let value = String(data: line, encoding: .utf8) else { throw ModelFailure("流式响应编码无效") }
+        line.removeAll(keepingCapacity: true)
+        if value.isEmpty { return try dispatch() }
+        if value.hasPrefix("data:") { dataLines.append(String(value.dropFirst(5)).trimmingCharacters(in: .whitespaces)) }
+        return false
+    }
+    private mutating func dispatch() throws -> Bool {
+        guard !dataLines.isEmpty else { return false }
+        let value = dataLines.joined(separator: "\n"); dataLines.removeAll(keepingCapacity: true)
+        guard !terminated else { return false }
+        if value == "[DONE]", adapter == .openAI { terminated = true; return true }
+        guard let bytes = value.data(using: .utf8), let object = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any], object["error"] == nil else { throw ModelFailure("流式响应包含错误或无效片段") }
+        text += try ModelWire.content(object, adapter: adapter); packets += 1
+        if adapter == .gemini, let candidates = object["candidates"] as? [[String: Any]], candidates.first?["finishReason"] as? String == "STOP" { terminated = true }
+        if adapter == .anthropic, object["type"] as? String == "message_stop" { terminated = true }
+        return true
+    }
+    mutating func finish() throws -> String {
+        if !line.isEmpty { _ = try consumeLine() }
+        _ = try dispatch()
+        guard terminated, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ModelFailure("流式响应未完整结束，未应用任务属性") }
+        return text
+    }
+}
+
+/// Extract only a top-level JSON message; never show raw attributes, protocol or reasoning.
+enum ModelReplyPreview {
+    static func message(in output: String) -> String {
+        var raw = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        if raw.hasPrefix("<think>") {
+            guard let end = raw.range(of: "</think>") else { return "" }
+            raw = String(raw[end.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        guard finished, !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ModelFailure("流式响应未完整结束，输入已保留") }
-        return result
+        if raw.hasPrefix("```") {
+            guard let newline = raw.firstIndex(of: "\n") else { return "" }
+            raw = String(raw[raw.index(after: newline)...])
+        }
+        guard raw.first == "{" else { return "" }
+        let chars = Array(raw)
+        var depth = 0, index = 0, expectsKey = false
+        while index < chars.count {
+            let char = chars[index]
+            if char == "\"" {
+                let start = index; index += 1
+                var escaped = false
+                while index < chars.count {
+                    if !escaped && chars[index] == "\"" { break }
+                    if !escaped && chars[index] == "\\" { escaped = true } else { escaped = false }
+                    index += 1
+                }
+                guard index < chars.count else { return "" }
+                if depth == 1 && expectsKey {
+                    let key = String(chars[start...index])
+                    var next = index + 1
+                    while next < chars.count && chars[next].isWhitespace { next += 1 }
+                    guard next < chars.count, chars[next] == ":" else { return "" }
+                    next += 1
+                    while next < chars.count && chars[next].isWhitespace { next += 1 }
+                    if (try? JSONDecoder().decode(String.self, from: Data(key.utf8))) == "message" {
+                        guard next < chars.count && chars[next] == "\"" else { return "" }
+                        return partialString(chars, from: next)
+                    }
+                    expectsKey = false
+                }
+            } else if char == "{" || char == "[" { depth += 1; if depth == 1 { expectsKey = true } }
+            else if char == "}" || char == "]" { depth -= 1 }
+            else if char == "," && depth == 1 { expectsKey = true }
+            index += 1
+        }
+        return ""
+    }
+    private static func partialString(_ chars: [Character], from start: Int) -> String {
+        var index = start + 1, escaped = false
+        while index < chars.count {
+            if !escaped && chars[index] == "\"" { break }
+            if !escaped && chars[index] == "\\" { escaped = true } else { escaped = false }
+            index += 1
+        }
+        // An unfinished escape or surrogate pair can occupy at most twelve characters.
+        for dropped in 0...min(12, index - start - 1) {
+            let end = index - dropped
+            let candidate = String(chars[start..<end]) + "\""
+            if let decoded = try? JSONDecoder().decode(String.self, from: Data(candidate.utf8)) { return String(decoded.prefix(2000)) }
+        }
+        return ""
+    }
+}
+
+enum ModelTranscriptionWire {
+    static func request(_ config: ModelConfiguration, key: String?, audio: Data, deadline: TimeInterval = 60, wav: Bool = false) throws -> URLRequest {
+        try ModelValidation.validate(config, among: [])
+        guard config.adapter == .transcription, !audio.isEmpty, audio.count <= 20_000_000 else { throw ModelFailure("请选择音频转写模型并提供 20 MB 以内的录音") }
+        guard !config.modelID.contains("\r"), !config.modelID.contains("\n") else { throw ModelFailure("模型标识含无效控制字符") }
+        try ModelValidation.validateKey(key ?? "")
+        if config.requiresKey, key?.isEmpty != false { throw ModelFailure("语音转写配置缺少密钥") }
+        let boundary = "Venus-" + UUID().uuidString
+        var body = Data()
+        func add(_ value: String) { body.append(Data(value.utf8)) }
+        for (name, value) in [("model", config.modelID), ("response_format", "json")] {
+            add("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n")
+        }
+        add("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"recording.\(wav ? "wav" : "m4a")\"\r\nContent-Type: \(wav ? "audio/wav" : "audio/mp4")\r\n\r\n")
+        body.append(audio); add("\r\n--\(boundary)--\r\n")
+        let root = config.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard let url = URL(string: root + "/audio/transcriptions") else { throw ModelFailure("语音转写地址无效") }
+        var request = URLRequest(url: url, timeoutInterval: min(Double(config.timeoutSeconds), deadline))
+        request.httpMethod = "POST"; request.httpBody = body
+        request.setValue("multipart/form-data; boundary=" + boundary, forHTTPHeaderField: "Content-Type")
+        if config.requiresKey, let key { request.setValue("Bearer " + key, forHTTPHeaderField: "Authorization") }
+        return request
+    }
+    static func response(_ data: Data, config: ModelConfiguration, status: Int) throws -> String {
+        if !(200...299).contains(status) { return try ModelWire.response(data, config: config, status: status) }
+        guard data.count <= 2_000_000, let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any], object["error"] == nil,
+              let text = object["text"] as? String, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ModelFailure("转写服务没有返回有效文字，请检查音频模型及接口") }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

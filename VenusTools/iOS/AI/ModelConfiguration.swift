@@ -12,20 +12,22 @@ enum ModelExecution: String, Codable, CaseIterable, Identifiable {
     var title: String { switch self { case .onDevice: return "iPhone 本机"; case .lanService: return "局域网服务"; case .thirdParty: return "第三方服务" } }
 }
 enum ModelAdapter: String, Codable, CaseIterable, Identifiable {
-    case mlx, openAI, anthropic, gemini
+    case mlx, openAI, anthropic, gemini, transcription
     var id: String { rawValue }
-    var title: String { switch self { case .mlx: return "本机 MLX"; case .openAI: return "Chat Completions 兼容"; case .anthropic: return "Anthropic Messages"; case .gemini: return "Gemini generateContent" } }
+    var title: String { switch self { case .mlx: return "本机 MLX"; case .openAI: return "Chat Completions 兼容"; case .anthropic: return "Anthropic Messages"; case .gemini: return "Gemini generateContent"; case .transcription: return "音频转写兼容接口" } }
 }
 enum ModelPurpose: String, CaseIterable, Identifiable {
-    case dialogue, summary, search
+    case dialogue, summary, search, transcription
     var id: String { rawValue }
     var binding: String { "reminders." + (self == .search ? ModelPurpose.dialogue.rawValue : rawValue) }
-    var title: String { switch self { case .dialogue: return "任务 AI 对话"; case .summary: return "今日总结"; case .search: return "智能查找" } }
+    var title: String { switch self { case .dialogue: return "任务 AI 对话"; case .summary: return "今日总结"; case .search: return "智能查找"; case .transcription: return "任务语音转文字" } }
+    func accepts(_ config: ModelConfiguration) -> Bool { self == .transcription ? config.adapter == .transcription : config.textCapable && config.adapter != .transcription }
     var disclosure: String {
         switch self {
         case .dialogue: return "本轮文字、必要对话、最新任务草稿、明确相关的依赖候选，以及本机语音转写和图片识别文字。原始图片和录音不发送。"
         case .summary: return "今日及此前逾期任务中前 30 项的标题、概要、时间、重要程度和未完成前置数量。完整清单留在手机。"
         case .search: return "仅本次查询、当前日期和时区，用于解析查找条件；不发送任务列表。"
+        case .transcription: return "本次麦克风录音（最多两分钟）将发送到此服务进行语音转文字，不发送任务或对话。转写文字会先放入输入栏供核对，发送给文字模型需另行操作。"
         }
     }
 }
@@ -74,6 +76,11 @@ struct ModelConfiguration: Codable, Equatable, Identifiable {
     }
     var destination: String { URL(string: baseURL)?.host ?? "iPhone 本机" }
     var validTest: ModelTestResult? { test?.fingerprint == fingerprint ? test : nil }
+    var capabilityTitle: String {
+        if adapter == .transcription { return "音频转写" }
+        if textCapable { return "文字对话" }
+        return modelID == "whisper-small" ? "语音模板 · 未接入运行库" : "视觉模板 · 未接入运行库"
+    }
     static func defaults() -> [ModelConfiguration] {
         var text = ModelConfiguration(); text.name = "本机文字整理"
         var vision = ModelConfiguration(); vision.name = "本机图片理解"; vision.modelID = "mlx-community/Qwen2-VL-2B-Instruct-4bit"; vision.textCapable = false; vision.enabled = false
@@ -105,6 +112,7 @@ enum ModelValidation {
         guard (1...50).contains(name.count), name.range(of: "[\\p{Han}]", options: .regularExpression) != nil else { throw ModelFailure("配置名称需为 1～50 字，包含中文") }
         guard !all.contains(where: { $0.id != config.id && nameKey($0.name) == nameKey(name) }) else { throw ModelFailure("已有同名配置，请使用唯一中文名称") }
         guard !config.modelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, config.modelID.count <= 200 else { throw ModelFailure("请填写实际模型标识，最多 200 字") }
+        guard !config.modelID.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else { throw ModelFailure("模型标识不能包含换行或控制字符") }
         guard (10...120).contains(config.timeoutSeconds) else { throw ModelFailure("超时需为 10～120 秒") }
         if config.execution == .onDevice {
             guard config.adapter == .mlx, !config.requiresKey, config.credentialRef == nil, config.baseURL.isEmpty else { throw ModelFailure("本机配置不使用地址或推理密钥") }
@@ -115,18 +123,21 @@ enum ModelValidation {
                   url.user == nil, url.password == nil, url.query == nil, url.fragment == nil,
                   ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { throw ModelFailure("请填写无账号、查询参数或片段的 API 根地址") }
             let path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            guard !["chat/completions", "messages", ":generateContent", ":streamGenerateContent"].contains(where: { path.hasSuffix($0) }) else { throw ModelFailure("请填写 API 根地址，移除末尾操作路径") }
+            guard !["chat/completions", "audio/transcriptions", "messages", ":generateContent", ":streamGenerateContent"].contains(where: { path.hasSuffix($0) }) else { throw ModelFailure("请填写 API 根地址，移除末尾操作路径") }
             if config.execution == .lanService {
                 guard isPrivateHost(host) else { throw ModelFailure("局域网地址需为私网 IP 或 .local 域名；公网服务请选择第三方") }
                 guard url.scheme == "https" || !config.requiresKey else { throw ModelFailure("使用密钥的局域网服务必须启用 HTTPS") }
             } else if url.scheme != "https" { throw ModelFailure("第三方服务必须使用 HTTPS") }
-            if config.execution == .lanService && config.adapter != .openAI { throw ModelFailure("局域网服务当前使用 Chat Completions 兼容协议") }
+            if config.execution == .lanService && config.adapter != .openAI && config.adapter != .transcription { throw ModelFailure("局域网服务使用文字或音频转写兼容协议") }
             if config.adapter == .gemini, config.modelID.range(of: "^[A-Za-z0-9._-]+$", options: .regularExpression) == nil { throw ModelFailure("Gemini 模型标识只填名称，不包含 models/ 或其他路径") }
             if config.adapter == .anthropic, config.apiVersion.range(of: "^\\d{4}-\\d{2}-\\d{2}$", options: .regularExpression) == nil { throw ModelFailure("API 版本需为 yyyy-MM-dd 格式") }
-            if config.adapter != .openAI && !config.requiresKey { throw ModelFailure("此协议需要 API Key") }
+            if config.adapter != .openAI && config.adapter != .transcription && !config.requiresKey { throw ModelFailure("此协议需要 API Key") }
         }
         guard !config.provider.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ModelFailure("请填写提供方") }
         let g = config.generation
+        if config.adapter == .transcription {
+            guard !config.textCapable, g == ModelGeneration() else { throw ModelFailure("音频转写不使用文字采样、流式或 JSON 输出参数") }
+        }
         if let n = g.maxTokens, !(1...131_072).contains(n) { throw ModelFailure("输出上限需为 1～131072 的整数，并符合服务商模型限制") }
         if config.execution == .onDevice, let n = g.maxTokens, n > 4096 { throw ModelFailure("本机输出上限最多 4096 token") }
         if let t = g.temperature, !t.isFinite || !(0...2).contains(t) { throw ModelFailure("温度需在 0～2 范围内") }

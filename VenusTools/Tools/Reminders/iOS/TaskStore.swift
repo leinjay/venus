@@ -40,6 +40,7 @@ final class ReminderStore: NSObject, ObservableObject, WCSessionDelegate, UNUser
             clean.tasks.removeAll { task in expired.contains { $0.id == task.id } }
             for task in expired { clean.history.removeValue(forKey: task.id.uuidString) }
             if !expired.isEmpty { clean.revision += 1; try write(clean); database = clean }
+            for task in expired { try? removeConversation(task.id) }
             clearExpiredDrafts()
         } catch { writable = false; errorMessage = "无法读取或迁移任务：\(error.localizedDescription)。原数据已保留，请释放空间后重新打开。" }
         UNUserNotificationCenter.current().delegate = self
@@ -90,6 +91,7 @@ final class ReminderStore: NSObject, ObservableObject, WCSessionDelegate, UNUser
         var history = next.history[task.id.uuidString] ?? []
         history.insert(TaskVersion(source: "iPhone 保存", task: task), at: 0)
         next.history[task.id.uuidString] = Array(history.prefix(20))
+        try saveConversation(draft)
         try commit(next)
         try? discardDraft(draft.key)
         if task.schedule.trigger().map({ $0 > Date() }) == true { refreshNotifications(requestPermission: true) }
@@ -133,12 +135,15 @@ final class ReminderStore: NSObject, ObservableObject, WCSessionDelegate, UNUser
         do {
             var next = database; next.revision += 1
             next.tasks.removeAll { $0.id == task.id }; next.history.removeValue(forKey: task.id.uuidString)
-            try commit(next); try? discardDraft(task.id.uuidString)
+            try commit(next); try? discardDraft(task.id.uuidString); try? removeConversation(task.id)
         } catch { errorMessage = error.localizedDescription }
     }
 
     func saveDraft(_ draft: TaskDraft) throws {
+        guard writable else { throw TaskFailure("数据暂不可写，请保留本页内容") }
         var value = draft; value.updatedAt = Date()
+        if value.base != nil { try saveConversation(value) }
+        if !value.hasPendingEdits { try discardDraft(value.key); return }
         try JSONEncoder().encode(value).write(to: directory.appendingPathComponent("draft-\(value.key).json"), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
     func loadDraft(_ key: String) -> TaskDraft? {
@@ -149,6 +154,7 @@ final class ReminderStore: NSObject, ObservableObject, WCSessionDelegate, UNUser
     func discardDraft(_ key: String) throws {
         if let draft = loadDraft(key) {
             for image in draft.images { try? FileManager.default.removeItem(at: imageURL(image)) }
+            if let audio = draft.audio { removeAudio(audio) }
         }
         let url = directory.appendingPathComponent("draft-\(key).json")
         if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
@@ -159,16 +165,31 @@ final class ReminderStore: NSObject, ObservableObject, WCSessionDelegate, UNUser
         try data.write(to: imageURL(image), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]); return image
     }
     func removeImage(_ image: TaskImage) { try? FileManager.default.removeItem(at: imageURL(image)) }
+    func audioURL(_ audio: TaskAudio) -> URL { directory.appendingPathComponent(audio.filename) }
+    func removeAudio(_ audio: TaskAudio) { try? FileManager.default.removeItem(at: audioURL(audio)) }
+    func conversation(_ id: UUID) throws -> TaskConversation? {
+        try TaskConversationArchive(directory: directory).load(id)
+    }
+    private func saveConversation(_ draft: TaskDraft) throws {
+        guard !draft.messages.isEmpty else { return }
+        let old = try conversation(draft.task.id)
+        let value = TaskConversation(id: old?.id ?? draft.conversationID ?? UUID(), taskID: draft.task.id, messages: draft.messages)
+        try TaskConversationArchive(directory: directory).save(value)
+    }
+    private func removeConversation(_ id: UUID) throws {
+        try TaskConversationArchive(directory: directory).remove(id)
+    }
     private func clearExpiredDrafts() {
         guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return }
         var referenced = Set<String>()
         for file in files where file.lastPathComponent.hasPrefix("draft-") {
             guard let draft = try? JSONDecoder().decode(TaskDraft.self, from: Data(contentsOf: file)) else { continue }
             if Date().timeIntervalSince(draft.updatedAt) > 7 * 86_400 {
+                if let audio = draft.audio { removeAudio(audio) }
                 for image in draft.images { removeImage(image) }; try? FileManager.default.removeItem(at: file)
-            } else { referenced.formUnion(draft.images.map(\.filename)) }
+            } else { referenced.formUnion(draft.images.map(\.filename)); if let audio = draft.audio { referenced.insert(audio.filename) } }
         }
-        for file in files where file.lastPathComponent.hasPrefix("image-") && !referenced.contains(file.lastPathComponent) { try? FileManager.default.removeItem(at: file) }
+        for file in files where (file.lastPathComponent.hasPrefix("image-") || file.lastPathComponent.hasPrefix("audio-")) && !referenced.contains(file.lastPathComponent) { try? FileManager.default.removeItem(at: file) }
     }
 
     func refreshNotifications(requestPermission: Bool = false) {

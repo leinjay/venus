@@ -15,7 +15,7 @@ actor LocalQwenEngine {
     private var container: ModelContainer?
     private var busy = false
     func unload() { container = nil }
-    func respond(directory: URL, system: String, prompt: String, generation: ModelGeneration = ModelGeneration(), timeout: TimeInterval = 60) async throws -> String {
+    func respond(directory: URL, system: String, prompt: String, generation: ModelGeneration = ModelGeneration(), timeout: TimeInterval = 60, onProgress: (@MainActor @Sendable (String) -> Void)? = nil) async throws -> String {
         guard !busy else { throw TaskFailure("另一项 AI 操作正在处理，请稍后重试") }
         busy = true; defer { busy = false }
         let deadline = Date().addingTimeInterval(timeout)
@@ -29,8 +29,15 @@ actor LocalQwenEngine {
             guard input.text.tokens.size <= 6000 else { throw TaskFailure("模型上下文过长，请缩短输入或具体内容") }
             let maximum = generation.maxTokens ?? 1800
             let parameters = GenerateParameters(maxTokens: maximum, temperature: Float(generation.temperature ?? 0.2), topP: Float(generation.topP ?? 0.9), repetitionPenalty: generation.repetitionPenalty)
-            let result: GenerateResult = try MLXLMCommon.generate(input: input, parameters: parameters, context: context) { (_: [Int]) -> GenerateDisposition in
-                Task.isCancelled || Date() >= deadline ? .stop : .more
+            var lastUpdate = Date.distantPast
+            let result: GenerateResult = try MLXLMCommon.generate(input: input, parameters: parameters, context: context) { (tokens: [Int]) -> GenerateDisposition in
+                if Task.isCancelled || Date() >= deadline { return .stop }
+                if onProgress != nil, Date().timeIntervalSince(lastUpdate) >= 0.1 {
+                    lastUpdate = Date()
+                    let partial = context.tokenizer.decode(tokens: tokens)
+                    Task { @MainActor in onProgress?(partial) }
+                }
+                return .more
             }
             try Task.checkCancellation()
             guard Date() < deadline else { throw TaskFailure("AI 处理超时，输入已保留") }
@@ -167,10 +174,10 @@ final class LocalQwenService: ObservableObject {
             } catch { return false }
         }.value
     }
-    func respond(system: String, prompt: String, generation: ModelGeneration = ModelGeneration(), timeout: TimeInterval = 60) async throws -> String {
+    func respond(system: String, prompt: String, generation: ModelGeneration = ModelGeneration(), timeout: TimeInterval = 60, onProgress: (@MainActor @Sendable (String) -> Void)? = nil) async throws -> String {
         guard ready else { throw TaskFailure("请先准备本机 Qwen3 模型，或使用属性表单") }
         guard !generating, !preparing else { throw TaskFailure("模型正在处理另一项操作") }
         generating = true; defer { generating = false }
-        return try await engine.respond(directory: directory, system: system, prompt: prompt, generation: generation, timeout: timeout)
+        return try await engine.respond(directory: directory, system: system, prompt: prompt, generation: generation, timeout: timeout, onProgress: onProgress)
     }
 }

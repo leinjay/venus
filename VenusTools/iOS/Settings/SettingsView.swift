@@ -3,11 +3,12 @@ import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @ObservedObject private var registry = ModelRegistry.shared
+    @EnvironmentObject private var navigation: AppNavigation
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigation.settingsPath) {
             List {
                 Section {
-                    NavigationLink { ModelListView() } label: {
+                    NavigationLink(value: SettingsRoute.models) {
                         VStack(alignment: .leading, spacing: 5) {
                             Label("模型配置", systemImage: "cpu")
                             Text("\(registry.configurations.count) 个具名配置 · 供各工具引用").font(.caption).foregroundStyle(.secondary)
@@ -17,11 +18,16 @@ struct SettingsView: View {
                 } footer: { Text("默认使用手机本机模型。局域网或第三方模型需自行配置，并按功能确认发送范围。") }
                 if let error = registry.storageError { Section { Text(error).foregroundStyle(.red) } }
             }.navigationTitle("设置")
+                .navigationDestination(for: SettingsRoute.self) { _ in ModelListView() }
+        }
+        .onChange(of: navigation.settingsPath) { _, path in
+            if path.isEmpty && navigation.returnTab != nil { navigation.returnFromSettings() }
         }
     }
 }
 
 struct ModelListView: View {
+    @EnvironmentObject private var navigation: AppNavigation
     @ObservedObject private var registry = ModelRegistry.shared
     @ObservedObject private var local = LocalQwenService.shared
     @State private var adding = false
@@ -35,7 +41,7 @@ struct ModelListView: View {
     var body: some View {
         List {
             Section {
-                NavigationLink("添加模型", isActive: $adding) { ModelConfigurationEditor() }
+                NavigationLink("添加模型") { ModelConfigurationEditor() }
                 NavigationLink("工具使用模型") { ModelBindingsView() }
                 Button("导入加密初始化文件") { importer = true }
             }
@@ -47,7 +53,11 @@ struct ModelListView: View {
                             Text(config.name).font(.headline)
                             Text("\(config.execution.title) · \(config.provider)").font(.caption)
                             Text(config.modelID).font(.caption2).foregroundStyle(.secondary)
-                            Text("\(registry.status(config)) · \(config.textCapable ? "文字" : "图片或语音模板") · \(registry.references(config.id).count) 个功能引用").font(.caption2).foregroundStyle(.secondary)
+                            Text("\(registry.status(config)) · \(config.capabilityTitle) · \(registry.references(config.id).count) 个功能引用").font(.caption2).foregroundStyle(.secondary)
+                            if config.execution == .onDevice && !config.textCapable {
+                                Text(config.modelID == "whisper-small" ? "尚未集成 WhisperKit；可另配音频转写模型，或选择系统离线识别。" : "尚未集成视觉运行库；当前图片使用本机文字提取。")
+                                    .font(.caption).foregroundStyle(AppTheme.terracotta)
+                            }
                             if let test = config.validTest { Text("最近测试 \(test.date.formatted())").font(.caption2).foregroundStyle(.secondary) }
                         }
                     }.swipeActions { Button("删除", role: .destructive) { deleting = config } }
@@ -55,10 +65,16 @@ struct ModelListView: View {
             }
             Section("本机模型资源") {
                 QwenModelPanel()
-                Text("图片理解和 WhisperKit 模板暂不可启用。当前任务图片可明确选择本机 OCR，语音使用系统离线识别；不会把它们标成视觉模型或 Whisper 已就绪。").font(.caption).foregroundStyle(.secondary)
+                Text("本机视觉和 WhisperKit 运行库尚未接入，预留模板不是下载失败。语音可在‘工具使用模型’选择已配置的音频转写模型或系统离线识别；普通文字模型不能直接转写录音。").font(.caption).foregroundStyle(.secondary)
                 Text("Qwen3 固定版本：\(LocalQwenService.revision)\n运行库 MLX Swift examples 2.25.9；多个文字配置共享这一份权重，生成参数分别保存。").font(.caption2).textSelection(.enabled)
             }
         }.navigationTitle("模型配置")
+            .navigationBarBackButtonHidden(navigation.returnTab != nil && navigation.settingsPath == [.models])
+            .toolbar {
+                if navigation.returnTab != nil && navigation.settingsPath == [.models] {
+                    ToolbarItem(placement: .topBarLeading) { Button { navigation.returnFromSettings() } label: { Label("返回任务", systemImage: "chevron.left") } }
+                }
+            }
             .sheet(item: $deleting) { ModelDeleteView(configuration: $0) }
             .fileImporter(isPresented: $importer, allowedContentTypes: [.data, .json]) { result in
                 do {
@@ -100,7 +116,7 @@ private struct ModelDeleteView: View {
                 Text("正在引用：\(references.map(\.title).joined(separator: "、"))；智能查找跟随对话。")
                 Picker("引用处理", selection: $replacement) {
                     Text("解除以上引用").tag(UUID?.none)
-                    ForEach(registry.configurations.filter { $0.id != configuration.id && $0.enabled && $0.textCapable }) { Text($0.name).tag(Optional($0.id)) }
+                    ForEach(registry.configurations.filter { candidate in candidate.id != configuration.id && candidate.enabled && references.allSatisfy({ $0.accepts(candidate) }) }) { Text($0.name).tag(Optional($0.id)) }
                 }
             }
             if let error { Text(error).foregroundStyle(.red) }
@@ -115,7 +131,7 @@ private struct ModelDeleteView: View {
 struct ModelBindingsView: View {
     var body: some View {
         List {
-            Section { ModelBindingPanel(purpose: .dialogue); ModelBindingPanel(purpose: .summary); ModelBindingPanel(purpose: .search) }
+            Section { ModelBindingPanel(purpose: .dialogue); ModelBindingPanel(purpose: .summary); ModelBindingPanel(purpose: .search); ModelBindingPanel(purpose: .transcription) }
             Section { Text("模型改名后引用保持有效；禁用、删除或调用参数变更后，旧请求会停止。配置测试仅使用固定样本，不代表已授权发送任务。").font(.caption).foregroundStyle(.secondary) }
         }.navigationTitle("工具使用模型")
     }
@@ -123,6 +139,8 @@ struct ModelBindingsView: View {
 
 struct ModelBindingPanel: View {
     let purpose: ModelPurpose
+    var onManage: (() -> Void)? = nil
+    @EnvironmentObject private var navigation: AppNavigation
     @ObservedObject private var registry = ModelRegistry.shared
     @State private var consent = false
     @State private var error: String?
@@ -135,8 +153,8 @@ struct ModelBindingPanel: View {
                 Picker("模型", selection: Binding(get: { selected?.id }, set: { id in
                     do { try registry.bind(id, to: purpose) } catch { self.error = error.localizedDescription }
                 })) {
-                    Text("未配置").tag(UUID?.none)
-                    ForEach(registry.configurations.filter { $0.enabled && $0.textCapable || $0.id == selected?.id }) { config in Text(config.name + " · " + config.execution.title + (config.enabled ? "" : "（已禁用）")).tag(Optional(config.id)) }
+                    Text(purpose == .transcription ? "系统离线识别" : "未配置").tag(UUID?.none)
+                    ForEach(registry.configurations.filter { $0.enabled && purpose.accepts($0) || $0.id == selected?.id }) { config in Text(config.name + " · " + config.execution.title + (config.enabled ? "" : "（已禁用）")).tag(Optional(config.id)) }
                 }
             }
             if let config = selected {
@@ -148,7 +166,10 @@ struct ModelBindingPanel: View {
                     } else { Button("查看并确认发送范围") { consent = true }.font(.caption) }
                 }
             }
-            NavigationLink("管理模型配置") { ModelListView() }.font(.caption)
+            if purpose == .transcription && selected == nil {
+                Text("使用手机的离线识别，需要系统听写和语音权限。也可添加音频转写兼容模型，使用麦克风录音后转写，无需 Siri。").font(.caption).foregroundStyle(.secondary)
+            }
+            Button("管理模型配置") { if let onManage { onManage() } else { navigation.openModels() } }.font(.caption)
             if let error { Text(error).font(.caption).foregroundStyle(.red) }
         }.padding(.vertical, 6)
             .confirmationDialog("允许\(purpose.title)发送到 \(selected?.name ?? "")（\(selected?.destination ?? "")）？", isPresented: $consent, titleVisibility: .visible) {
