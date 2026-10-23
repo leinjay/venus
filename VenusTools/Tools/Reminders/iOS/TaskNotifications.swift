@@ -58,7 +58,9 @@ actor TaskNotifications {
             guard current == generation else { return "正在更新通知" }
             guard let date = item.schedule.trigger() else { continue }
             let content = UNMutableNotificationContent()
-            content.title = UserDefaults.standard.bool(forKey: "tasks.hideNotificationTitle") ? "你有一项任务待处理" : item.title
+            let text = TaskRules.notificationText(item, hideDetails: UserDefaults.standard.bool(forKey: "tasks.hideNotificationTitle"))
+            content.title = text.title
+            content.body = text.body
             content.sound = .default
             content.userInfo = ["taskID": item.id.uuidString]
             let parts = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)

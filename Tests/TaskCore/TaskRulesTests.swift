@@ -2,6 +2,26 @@ import XCTest
 @testable import VenusTaskCore
 
 final class TaskRulesTests: XCTestCase {
+    func testNotificationShowsTitleAndSummaryWithBodyFallback() {
+        var task = ReminderItem(); task.title = "  交报告  "; task.summary = "周五前提交"; task.body = "完整报告内容"
+        let text = TaskRules.notificationText(task, hideDetails: false)
+        XCTAssertEqual(text.title, "交报告"); XCTAssertEqual(text.body, "周五前提交")
+        task.summary = " \n "
+        XCTAssertEqual(TaskRules.notificationText(task, hideDetails: false).body, "完整报告内容")
+        task.body = ""; task.title = ""
+        XCTAssertEqual(TaskRules.notificationText(task, hideDetails: false).title, "任务提醒")
+        XCTAssertFalse(TaskRules.notificationText(task, hideDetails: false).body.isEmpty)
+    }
+
+    func testNotificationPrivacyAndLongContent() {
+        var task = ReminderItem(); task.title = "私人任务"; task.summary = String(repeating: "详", count: 300)
+        let visible = TaskRules.notificationText(task, hideDetails: false)
+        XCTAssertEqual(visible.body.count, 281); XCTAssertTrue(visible.body.hasSuffix("…"))
+        let hidden = TaskRules.notificationText(task, hideDetails: true)
+        XCTAssertEqual(hidden.title, "你有一项任务待处理")
+        XCTAssertEqual(hidden.body, "打开 Venus 查看任务详情")
+    }
+
     func testWatchSnapshotSharesSummaryButOmitsHeavyContentAndDeletedTasks() throws {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         var parent = ReminderItem(); parent.title = "前置"

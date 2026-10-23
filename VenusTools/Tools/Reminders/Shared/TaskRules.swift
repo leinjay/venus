@@ -7,6 +7,16 @@ struct TaskFailure: LocalizedError {
 }
 
 enum TaskRules {
+    static func notificationText(_ task: ReminderItem, hideDetails: Bool) -> (title: String, body: String) {
+        guard !hideDetails else { return ("你有一项任务待处理", "打开 Venus 查看任务详情") }
+        let title = task.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let summary = task.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        let details = task.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = !summary.isEmpty ? summary : !details.isEmpty ? details : "点击查看任务详情"
+        let body = text.count > 280 ? String(text.prefix(280)) + "…" : text
+        return (title.isEmpty ? "任务提醒" : title, body)
+    }
+
     static func normalizedTags(_ tags: [TaskTag]) -> [TaskTag] {
         var result: [TaskTag] = []
         for tag in tags {
