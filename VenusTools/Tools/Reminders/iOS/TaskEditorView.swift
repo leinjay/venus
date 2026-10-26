@@ -2,6 +2,24 @@ import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
 
+private struct TaskVoiceButtonFrame: PreferenceKey {
+    static var defaultValue: CGRect { .zero }
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
+}
+
+private struct TaskRecordingWaveform: View {
+    var level: Double
+    var color: Color
+    private let weights: [Double] = [0.3, 0.6, 0.9, 0.5, 0.75, 1, 0.65, 0.85, 0.4, 0.7, 0.95, 0.55, 0.3]
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(weights.indices, id: \.self) { index in
+                Capsule().fill(color).frame(width: 4, height: 4 + 28 * level * weights[index])
+            }
+        }.frame(height: 32).animation(.easeOut(duration: 0.1), value: level)
+    }
+}
+
 struct TaskEditorView: View {
     @ObservedObject var store: ReminderStore
     @StateObject private var voice = TaskVoiceInput()
@@ -40,6 +58,14 @@ struct TaskEditorView: View {
     @State private var tagKey = ""
     @State private var tagValue = ""
     @GestureState private var voicePressed = false
+    @State private var voiceMode = false
+    @State private var voiceHold = TaskVoiceHold()
+    @State private var voiceGestureConsumed = false
+    @State private var accessibleVoiceHold = false
+    @State private var voiceButtonFrame = CGRect.zero
+    @State private var recordingAudioID: UUID?
+    @State private var voiceReviewOriginal: String?
+    @State private var photoLibrary = false
     @State private var voicePrefix = ""
     @State private var lastVoiceInput = ""
     @State private var imageToEdit: TaskImage?
@@ -79,6 +105,8 @@ struct TaskEditorView: View {
             if draft.tab == 0 { conversation } else { form }
         }
         .background(AppTheme.canvas.ignoresSafeArea())
+        .coordinateSpace(name: "task-editor")
+        .overlay { recordingOverlay }
         .navigationTitle(draft.base == nil ? "新建任务" : "编辑任务")
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden()
@@ -99,15 +127,26 @@ struct TaskEditorView: View {
         }
         .onChange(of: draft.input) { _, _ in persistDraft() }
         .onChange(of: draft.images) { _, _ in persistDraft() }
-        .onChange(of: draft.tab) { _, _ in voice.cancel(); recorder.stop(); persistDraft() }
+        .onChange(of: draft.tab) { _, _ in cancelVoiceHold(); persistDraft() }
         .onChange(of: voicePressed) { _, pressed in
-            if pressed { toggleVoice() } else { finishVoiceHold() }
+            if !pressed {
+                // onEnded owns an intentional release; a reset without it is an interruption.
+                Task { @MainActor in
+                    await Task.yield()
+                    guard !voicePressed, !accessibleVoiceHold else { return }
+                    if voiceHold.isActive { cancelVoiceHold() }
+                    voiceGestureConsumed = false
+                }
+            }
         }
         .onChange(of: voice.recording) { _, recording in
-            if !recording { applyVoiceText(voice.text) }
+            if !recording {
+                if voiceHold.isActive { finishVoiceHold() }
+                applyVoiceText(voice.text)
+            }
         }
         .onChange(of: recorder.seconds) { _, seconds in
-            if seconds >= 120 && editorVisible && scenePhase == .active { recorder.stop(); transcribeAudio() }
+            if seconds >= 120 && voiceHold.isActive { finishVoiceHold() }
         }
         .onChange(of: photos) { _, values in
             Task { for value in values {
@@ -118,10 +157,13 @@ struct TaskEditorView: View {
         .onReceive(voice.$text) { text in
             if !voice.recording { applyVoiceText(text) }
         }
-        .onDisappear { editorVisible = false; cancelAnalysis(); cancelSpeech(); voice.cancel(); recorder.stop(); if !finished { persistDraft() } }
+        .onDisappear { editorVisible = false; cancelAnalysis(); cancelSpeech(); cancelVoiceHold(); if !finished { persistDraft() } }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { editorVisible = true }
-            else if phase == .background { editorVisible = false; cancelAnalysis(); cancelSpeech(); voice.cancel(); recorder.stop(); persistDraft() }
+            else {
+                cancelVoiceHold()
+                if phase == .background { editorVisible = false; cancelAnalysis(); cancelSpeech(); persistDraft() }
+            }
         }
     }
 
@@ -144,6 +186,7 @@ struct TaskEditorView: View {
         .sheet(isPresented: $showDependencies) { dependencyPicker }
         .sheet(item: $imageToEdit) { image in imageEditor(image) }
         .sheet(isPresented: $camera) { TaskCamera { image in do { if let data = image.jpegData(compressionQuality: 0.9) { try addImage(data) } } catch { self.error = error.localizedDescription } } }
+        .photosPicker(isPresented: $photoLibrary, selection: $photos, maxSelectionCount: 3, matching: .images)
         .sheet(isPresented: Binding(get: { !saveConflicts.isEmpty }, set: { if !$0 { saveConflicts = [] } })) { externalConflictSheet }
     }
 
@@ -205,6 +248,17 @@ struct TaskEditorView: View {
 
     private var conversationMaterials: some View {
         VStack(alignment: .leading, spacing: 16) {
+                if let issue = speechError ?? voice.error {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(issue).font(.caption).foregroundStyle(AppTheme.terracotta)
+                        HStack {
+                            Button("选择语音模型", action: showModelOptions)
+                            if voice.needsSettings { Button("打开应用权限") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } } }
+                            Spacer()
+                            Button { speechError = nil; voice.error = nil } label: { Image(systemName: "xmark") }.accessibilityLabel("收起语音提示")
+                        }.font(.caption)
+                    }.surfaceCard()
+                }
                 if !conflicts.isEmpty, let proposal = conflictingTask {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("这些属性在 AI 处理期间有新修改，已保留当前值").font(.headline)
@@ -242,18 +296,8 @@ struct TaskEditorView: View {
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if let issue = speechError ?? voice.error {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(issue).font(.caption).foregroundStyle(AppTheme.terracotta)
-                    HStack {
-                        Button("选择语音模型", action: showModelOptions)
-                        if voice.needsSettings { Button("打开应用权限") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } } }
-                        Spacer()
-                        Button { speechError = nil; voice.error = nil } label: { Image(systemName: "xmark") }.accessibilityLabel("收起语音提示")
-                    }.font(.caption)
-                }
-            }
-            if let audio = draft.audio {
+            if voice.finalizing { HStack(spacing: 8) { ProgressView().controlSize(.mini); Text("正在完成文字识别…") }.font(.caption).foregroundStyle(AppTheme.secondary) }
+            if let audio = draft.audio, !voiceHold.isActive {
                 HStack(spacing: 10) {
                     Label(recorder.recording ? "录音 \(recorder.seconds) 秒" : transcribing ? "正在转写录音…" : "录音已保留", systemImage: "waveform").font(.caption)
                     Spacer()
@@ -268,36 +312,53 @@ struct TaskEditorView: View {
                     TextField("核对转写文字", text: Binding(get: { draft.audio?.transcript ?? transcript }, set: { draft.audio?.transcript = $0; persistDraft() }), axis: .vertical).lineLimit(2...4).font(.caption)
                 }
             }
-            TextField("说说你想做的事…", text: $draft.input, axis: .vertical)
-                .lineLimit(1...5).focused($inputFocused).padding(12)
-                .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 16))
-            HStack(spacing: 16) {
-                Text(isRecording ? "松开转文字" : "按住说话")
-                    .font(.subheadline.weight(.medium)).padding(.horizontal, 12).frame(minHeight: 44)
-                    .background(isRecording ? AppTheme.line : AppTheme.surface, in: Capsule())
-                    .contentShape(Capsule())
-                    .gesture(DragGesture(minimumDistance: 0).updating($voicePressed) { _, pressed, _ in pressed = true })
-                    .allowsHitTesting(!transcribing)
-                    .accessibilityAddTraits(.isButton)
-                    .accessibilityLabel(isRecording ? "结束录音并转文字" : "按住说话，松开转文字")
-                    .accessibilityAction { if isRecording { finishVoiceHold() } else { toggleVoice(accessibility: true) } }
-                PhotosPicker(selection: $photos, maxSelectionCount: 3, matching: .images) { Image(systemName: "photo").font(.title3).frame(minWidth: 32, minHeight: 36) }.accessibilityLabel("从相册添加图片")
+            if voiceReviewOriginal != nil {
+                HStack {
+                    Text("已转为文字，可修改后发送").foregroundStyle(AppTheme.secondary)
+                    Spacer()
+                    Button("取消这段") {
+                        voiceHold.cancel(); voice.cancel()
+                        if let original = voiceReviewOriginal { draft.input = original }
+                        voiceReviewOriginal = nil; persistDraft()
+                    }
+                }.font(.caption)
+            }
+            HStack(alignment: .bottom, spacing: 8) {
+                Button {
+                    cancelVoiceHold(); voiceReviewOriginal = nil
+                    voiceMode.toggle(); inputFocused = !voiceMode
+                } label: {
+                    Image(systemName: voiceMode ? "keyboard" : "waveform.circle")
+                        .font(.system(size: 24)).frame(width: 36, height: 48)
+                }.accessibilityLabel(voiceMode ? "切换键盘输入" : "切换按住说话")
+                    .disabled(voiceHold.isActive)
+                if voiceMode { holdToTalk }
+                else {
+                    TextField("说说你想做的事…", text: $draft.input, axis: .vertical)
+                        .lineLimit(1...5).focused($inputFocused).padding(.horizontal, 12).padding(.vertical, 13)
+                        .frame(minHeight: 48).background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 12))
+                        .disabled(voiceHold.isActive)
+                }
                 Menu {
+                    Button("从相册添加图片", systemImage: "photo") { inputFocused = false; photoLibrary = true }
                     Button("拍摄") { inputFocused = false; if UIImagePickerController.isSourceTypeAvailable(.camera) { camera = true } else { error = "此设备没有可用相机" } }
                     Button("粘贴图片") { if let image = UIPasteboard.general.image, let data = image.jpegData(compressionQuality: 0.9) { do { try addImage(data) } catch { self.error = error.localizedDescription } } else { error = "剪贴板中没有可用图片" } }
-                } label: { Image(systemName: "plus.circle").font(.title3).frame(minWidth: 32, minHeight: 36) }.accessibilityLabel("拍摄或粘贴图片")
-                Spacer(minLength: 0)
-                Button { if processing { cancelAnalysis(); persistDraft() } else { submit() } } label: {
-                    Label(processing ? "停止" : "发送", systemImage: processing ? "stop.fill" : "arrow.up")
-                        .font(.subheadline.weight(.semibold)).padding(.horizontal, 14).padding(.vertical, 10)
-                        .foregroundStyle(AppTheme.surface).background(AppTheme.pine, in: Capsule())
-                }.disabled(!processing && (isRecording || transcribing || (draft.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && pendingImages.isEmpty)))
+                } label: { Image(systemName: "plus.circle").font(.system(size: 24)).frame(width: 36, height: 48) }
+                    .accessibilityLabel("添加图片或拍摄").disabled(voiceHold.isActive)
+                if !voiceMode || processing {
+                    Button { if processing { cancelAnalysis(); persistDraft() } else { submit() } } label: {
+                        Image(systemName: processing ? "stop.fill" : "arrow.up")
+                            .font(.system(size: 18, weight: .semibold)).frame(width: 44, height: 48)
+                            .foregroundStyle(.white).background(AppTheme.pine, in: RoundedRectangle(cornerRadius: 12))
+                    }.accessibilityLabel(processing ? "停止" : "发送")
+                    .disabled(voiceHold.isActive || (!processing && (isRecording || transcribing || (draft.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && pendingImages.isEmpty))))
                     .opacity(!processing && draft.input.isEmpty && pendingImages.isEmpty ? 0.5 : 1)
+                }
             }.buttonStyle(.plain)
             HStack {
                 Text("\(draft.input.count) / 2,000 字").foregroundStyle(draft.input.count > 2000 ? AppTheme.terracotta : AppTheme.secondary)
                 Spacer()
-                Text(isRecording ? "正在录音 · 最多 2 分钟" : "离开自动保留草稿").foregroundStyle(AppTheme.secondary)
+                Text(voiceMode ? "松手转文字 · 上滑到 × 取消" : "离开自动保留草稿").foregroundStyle(AppTheme.secondary)
             }.font(.caption2)
         }.padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 8)
             .background(AppTheme.canvas)
@@ -305,6 +366,90 @@ struct TaskEditorView: View {
     }
 
     private var isRecording: Bool { voice.recording || recorder.recording }
+
+    private var cancelRegion: CGRect { TaskVoiceHold.cancelRegion(above: voiceButtonFrame) }
+
+    private var holdToTalk: some View {
+        Text(transcribing ? "正在转文字…" : voiceHold.isActive ? "松开转文字" : "按住说话")
+            .font(.body.weight(.medium)).frame(maxWidth: .infinity).frame(height: 48)
+            .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 12))
+            .contentShape(Rectangle())
+            .background(GeometryReader { geometry in
+                Color.clear.preference(key: TaskVoiceButtonFrame.self, value: geometry.frame(in: .named("task-editor")))
+            })
+            .onPreferenceChange(TaskVoiceButtonFrame.self) { voiceButtonFrame = $0 }
+            .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("task-editor"))
+                .updating($voicePressed) { _, pressed, _ in pressed = true }
+                .onChanged { value in
+                    if !voiceGestureConsumed { voiceGestureConsumed = true; beginVoiceHold() }
+                    updateVoiceTarget(value.location)
+                }
+                .onEnded { value in
+                    updateVoiceTarget(value.location); finishVoiceHold()
+                    voiceGestureConsumed = false
+                })
+            .allowsHitTesting(!transcribing && !voice.finalizing)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel(voiceHold.isActive ? "结束录音并转文字" : "按住说话，松开转文字")
+            .accessibilityHint("向上滑入取消区后松手可撤销录音")
+            .accessibilityAction {
+                if voiceHold.isActive { finishVoiceHold() }
+                else { beginVoiceHold(accessibility: true) }
+            }
+            .accessibilityAction(named: Text("取消录音")) { cancelVoiceHold() }
+    }
+
+    private var recordingOverlay: some View {
+        GeometryReader { geometry in
+            if voiceHold.isActive, !voiceButtonFrame.isEmpty {
+                let cancel = cancelRegion
+                let armed = voiceHold.cancelsOnRelease
+                let feedback = armed ? Color(red: 0.93, green: 0.28, blue: 0.31) : AppTheme.sage
+                ZStack(alignment: .topLeading) {
+                    Color.black.opacity(0.68).ignoresSafeArea()
+                    if cancel.minY > 100 {
+                        VStack(spacing: 14) {
+                            if isRecording {
+                                TaskRecordingWaveform(level: recorder.recording ? recorder.level : voice.level,
+                                                      color: armed ? .white : AppTheme.ink)
+                            } else { ProgressView().tint(armed ? .white : AppTheme.ink) }
+                            Text(armed ? "松开取消" : isRecording ? "松开转文字" : "正在开启麦克风…")
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(armed ? .white : AppTheme.ink)
+                        }
+                        .frame(width: min(230, geometry.size.width - 48), height: 100)
+                        .background(feedback, in: RoundedRectangle(cornerRadius: 24))
+                        .overlay(alignment: .bottom) {
+                            Image(systemName: "arrowtriangle.down.fill").font(.system(size: 18))
+                                .foregroundStyle(feedback).offset(y: 12)
+                        }
+                        .position(x: geometry.size.width / 2, y: cancel.midY - 125)
+                    }
+                    VStack(spacing: 6) {
+                        Image(systemName: "xmark").font(.system(size: 24, weight: .medium))
+                            .frame(width: 64, height: 64)
+                            .background(armed ? feedback : .white.opacity(0.18), in: Circle())
+                            .scaleEffect(armed ? 1.12 : 1)
+                        Text(armed ? "松开取消" : "滑到这里取消").font(.caption)
+                    }.foregroundStyle(.white)
+                        .position(x: cancel.midX, y: cancel.midY + 10)
+                    Text(armed ? "松开取消" : "松开转文字")
+                        .font(.body.weight(.semibold)).foregroundStyle(.white)
+                        .frame(width: voiceButtonFrame.width, height: voiceButtonFrame.height)
+                        .background(armed ? feedback : .white.opacity(0.18), in: RoundedRectangle(cornerRadius: 12))
+                        .position(x: voiceButtonFrame.midX, y: voiceButtonFrame.midY)
+                }
+                .animation(.easeOut(duration: 0.12), value: armed)
+                .allowsHitTesting(false).accessibilityHidden(true)
+            }
+        }
+    }
+
+    private func updateVoiceTarget(_ point: CGPoint) {
+        let previous = voiceHold.cancelsOnRelease
+        voiceHold.move(to: point, cancelRegion: cancelRegion)
+        if previous != voiceHold.cancelsOnRelease { UISelectionFeedbackGenerator().selectionChanged() }
+    }
 
     private var form: some View {
         Form {
@@ -426,56 +571,82 @@ struct TaskEditorView: View {
     }
     private func leaveKeepingDraft() {
         inputFocused = false; editorVisible = false
-        cancelAnalysis(); cancelSpeech(); voice.cancel(); recorder.stop()
+        cancelAnalysis(); cancelSpeech(); cancelVoiceHold()
         guard persistDraft() else { editorVisible = true; return }
         finished = true; onClose()
     }
     private func openModelSettings() {
-        inputFocused = false; cancelAnalysis(); cancelSpeech(); voice.cancel(); recorder.stop()
+        inputFocused = false; cancelAnalysis(); cancelSpeech(); cancelVoiceHold()
         guard persistDraft() else { return }
         openSettingsAfterDismiss = true; modelSettings = false
     }
     private func showModelOptions() {
-        inputFocused = false; voice.cancel(); recorder.stop(); cancelSpeech(); persistDraft()
+        inputFocused = false; cancelVoiceHold(); cancelSpeech(); persistDraft()
         modelSettings = true
     }
     private func cancelSpeech() { speechID = UUID(); speechTask?.cancel(); speechTask = nil; transcribing = false }
     private func applyVoiceText(_ text: String) {
-        guard !text.isEmpty, editorVisible, !finished, draft.input == lastVoiceInput else { return }
+        guard voiceHold.phase == .released, registry.selected(.transcription) == nil,
+              !text.isEmpty, editorVisible, !finished, draft.input == lastVoiceInput else { return }
         let combined = voicePrefix + text
         guard combined.count <= 2000 else { speechError = "语音识别结果超过 2,000 字，请缩短录音后重试。"; return }
-        draft.input = combined; lastVoiceInput = draft.input
+        if voiceReviewOriginal == nil { voiceReviewOriginal = lastVoiceInput }
+        draft.input = combined; lastVoiceInput = draft.input; voiceMode = false
     }
     private func finishVoiceHold() {
-        if voice.starting { voice.cancel() }
-        if recorder.starting { recorder.stop() }
-        if voice.recording { voice.stop(); applyVoiceText(voice.text) }
-        if recorder.recording { recorder.stop(); transcribeAudio() }
+        guard voiceHold.isActive else { return }
+        guard voiceHold.release() else { cancelVoiceHold(); return }
+        accessibleVoiceHold = false
+        if voice.starting || recorder.starting { cancelVoiceHold(); return }
+        if let id = recordingAudioID, draft.audio?.id == id {
+            recorder.stop(); recordingAudioID = nil; voiceMode = false; transcribeAudio()
+        } else {
+            voiceMode = false; voice.finish(); applyVoiceText(voice.text)
+        }
     }
-    private func toggleVoice(accessibility: Bool = false) {
+    private func cancelVoiceHold() {
+        voiceHold.cancel(); accessibleVoiceHold = false
+        voice.cancel(); recorder.stop()
+        if let id = recordingAudioID, let audio = draft.audio, audio.id == id {
+            store.removeAudio(audio); draft.audio = nil
+            persistDraft()
+        }
+        recordingAudioID = nil
+    }
+    private func beginVoiceHold(accessibility: Bool = false) {
+        guard !transcribing, !voice.finalizing, !voice.starting, !recorder.starting, !voiceHold.isActive else { return }
         inputFocused = false; speechError = nil; voice.error = nil
-        if recorder.recording { recorder.stop(); transcribeAudio(); return }
-        if voice.recording { voice.stop(); return }
-        guard !transcribing, !voice.starting, !recorder.starting else { return }
+        // A retained failed recording must be resolved explicitly, never deleted by a new gesture.
+        guard draft.audio == nil else { speechError = "请先转写或删除已保留的录音，再录制下一段。"; return }
         if registry.selected(.transcription) != nil {
-            guard draft.audio == nil else { speechError = "请先转写或删除已保留的录音，再录制下一段。"; return }
             do { _ = try registry.resolve(.transcription) }
             catch { speechError = error.localizedDescription; modelSettings = true; return }
+        }
+        voice.cancel(); voice.text = ""
+        let token = voiceHold.begin(); accessibleVoiceHold = accessibility
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        if registry.selected(.transcription) != nil {
             let audio = TaskAudio(filename: "audio-\(UUID()).m4a")
             Task {
                 do {
-                    guard editorVisible, voicePressed || accessibility else { return }
+                    guard editorVisible, voiceHold.isActive, voiceHold.accepts(token) else { return }
                     try await recorder.start(at: store.audioURL(audio))
-                    guard editorVisible, voicePressed || accessibility else { recorder.stop(); store.removeAudio(audio); return }
-                    draft.audio = audio; persistDraft()
+                    guard editorVisible, voiceHold.isActive, voiceHold.accepts(token) else { store.removeAudio(audio); return }
+                    recordingAudioID = audio.id; draft.audio = audio; persistDraft()
                 } catch is CancellationError { store.removeAudio(audio) }
-                catch { speechError = error.localizedDescription; store.removeAudio(audio) }
+                catch {
+                    store.removeAudio(audio)
+                    guard voiceHold.accepts(token) else { return }
+                    cancelVoiceHold(); speechError = error.localizedDescription
+                }
             }
         } else {
             lastVoiceInput = draft.input; voicePrefix = draft.input.isEmpty ? "" : draft.input + "\n"
             Task {
-                guard editorVisible, voicePressed || accessibility else { return }
+                guard editorVisible, voiceHold.isActive, voiceHold.accepts(token) else { return }
                 await voice.start()
+                guard voiceHold.accepts(token) else { return }
+                if !voice.recording { cancelVoiceHold() }
             }
         }
     }
@@ -502,7 +673,8 @@ struct TaskEditorView: View {
         guard let text = draft.audio?.transcript else { return }
         let combined = draft.input + (draft.input.isEmpty ? "" : "\n") + text
         guard combined.count <= 2000 else { speechError = "转写文字与当前输入超过 2,000 字，请先编辑录音转写文字，再插入；没有截断或删除录音。"; persistDraft(); return }
-        draft.input = combined; removeAudio(); inputFocused = true
+        voiceReviewOriginal = draft.input
+        draft.input = combined; removeAudio(); voiceMode = false; inputFocused = false
     }
     private func removeAudio() {
         cancelSpeech(); recorder.stop()
@@ -516,7 +688,8 @@ struct TaskEditorView: View {
         cancelAnalysis(); let image = try store.storeImage(jpeg); draft.images.append(image); pendingImages.insert(image.id); persistDraft()
     }
     private func submit() {
-        voice.stop()
+        guard !voiceHold.isActive else { return }
+        voiceHold.cancel(); voice.cancel(); voiceReviewOriginal = nil
         let input = draft.input.trimmingCharacters(in: .whitespacesAndNewlines)
         let selected = draft.images.filter { pendingImages.contains($0.id) }
         guard selected.allSatisfy({ !$0.text.isEmpty }) else { error = "请先点开本轮图片，明确选择文字提取并核对结果，或取消本轮使用该图"; return }
@@ -562,7 +735,7 @@ struct TaskEditorView: View {
         }
     }
     private func prepareSave() {
-        cancelAnalysis(); cancelSpeech(); voice.cancel(); recorder.stop(); choices = []
+        cancelAnalysis(); cancelSpeech(); cancelVoiceHold(); choices = []
         if let base = draft.base, let latest = store.item(base.id) {
             let (_, conflicts) = TaskRules.merge(base: base, draft: draft.task, latest: latest)
             if !conflicts.isEmpty { saveConflicts = conflicts; return }

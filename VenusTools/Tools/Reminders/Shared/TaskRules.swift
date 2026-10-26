@@ -1,5 +1,34 @@
 import Foundation
 
+/// A release can only request transcription; sending a chat message is a separate action.
+struct TaskVoiceHold {
+    enum Phase: Equatable { case idle, holding, cancelling, released, cancelled }
+    private(set) var phase: Phase = .idle
+    private(set) var id = UUID()
+    var isActive: Bool { phase == .holding || phase == .cancelling }
+    var cancelsOnRelease: Bool { phase == .cancelling }
+
+    mutating func begin() -> UUID {
+        id = UUID(); phase = .holding; return id
+    }
+    mutating func move(to point: CGPoint, cancelRegion: CGRect) {
+        guard isActive else { return }
+        phase = !cancelRegion.isEmpty && cancelRegion.contains(point) ? .cancelling : .holding
+    }
+    @discardableResult mutating func release() -> Bool {
+        guard isActive else { return false }
+        let convert = !cancelsOnRelease
+        phase = convert ? .released : .cancelled
+        return convert
+    }
+    mutating func cancel() { phase = .cancelled; id = UUID() }
+    func accepts(_ token: UUID) -> Bool { token == id && (isActive || phase == .released) }
+    static func cancelRegion(above button: CGRect) -> CGRect {
+        guard !button.isEmpty else { return .zero }
+        return CGRect(x: button.midX - 44, y: max(60, button.minY - 86) - 44, width: 88, height: 88)
+    }
+}
+
 struct TaskFailure: LocalizedError {
     var message: String
     var errorDescription: String? { message }
