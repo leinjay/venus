@@ -96,7 +96,7 @@ jobs:
           APP_PATH="$RUNNER_TEMP/AppetizeDerivedData/Build/Products/Release-iphonesimulator/VenusTools.app"
           test -f "$APP_PATH/Info.plist"
           test -f "$APP_PATH/mlx-swift_Cmlx.bundle/default.metallib"
-          xcrun lipo -verify_arch arm64 "$APP_PATH/VenusTools"
+          xcrun lipo "$APP_PATH/VenusTools" -verify_arch arm64
           python3 - "$APP_PATH/Info.plist" <<'PY'
           import plistlib
           import sys
