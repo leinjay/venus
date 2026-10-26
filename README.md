@@ -27,6 +27,16 @@
 
 - `VenusTools-iPhone-only-unsigned-ipa`：手机安装入口，内含 `VenusTools-iPhone-only-unsigned.ipa`，供 AltServer / AltStore 重新签名；已移除 Watch 子包。
 - `VenusTools-iPhone-Watch-unsigned-ipa`：完整手机与手表配套包，内含 `VenusTools-iPhone-Watch-unsigned.ipa`，供社区 iLoader Watch 分支尝试签名安装；不作为 AltServer 安装入口。
+- `VenusTools-Appetize-iOS-Simulator`：ARM64 iOS 模拟器预览包，内含 `VenusTools-Appetize-iOS-Simulator.zip`，供 Windows 浏览器上传 Appetize 查看原生界面，无需 Apple 签名。
+
+### 在 Windows 浏览器使用 Appetize
+
+1. 在 [Actions](https://github.com/leinjay/venus/actions/workflows/build.yml) 选择最新构建，等待 `Build Appetize iOS Simulator preview` 成功。
+2. 下载 `VenusTools-Appetize-iOS-Simulator`，解压 GitHub 下载的外层 ZIP 一次。
+3. 登录 [Appetize 上传页](https://appetize.io/upload)，上传里面的 `VenusTools-Appetize-iOS-Simulator.zip`；不要上传外层 ZIP 或 IPA。
+4. 处理完成后，选择可用的 iPhone 与 iOS 17 或更新版本，启动预览。
+
+后续每次构建都会新增该预览产物。完整下载、更新与功能边界见 [Appetize 使用步骤](docs/development/appetize-preview.md)。本机 AI 性能、通知和 Watch 同步仍需真机验证。
 
 两份 IPA 都未签名，不能直接安装。包含 Watch 的旧包存在用户反馈的 AltServer 崩溃，本次拆包尚未实测 AltServer 安装。手表开发版可使用 Mac + Xcode 统一签名并运行；Windows 实验性安装步骤及功能约定见 [Venus Watch 精简版与 Windows 安装](docs/development/watch-companion.md)。只安装手机版仍可使用系统通知镜像，手表任务列表与完成操作需安装配套应用。
 
