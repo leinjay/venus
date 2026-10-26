@@ -1,4 +1,5 @@
 import XCTest
+import CoreGraphics
 @testable import VenusTaskCore
 
 final class TaskVoiceHoldTests: XCTestCase {

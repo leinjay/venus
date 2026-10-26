@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 /// A release can only request transcription; sending a chat message is a separate action.
 struct TaskVoiceHold {
