@@ -61,6 +61,7 @@ struct TaskEditorView: View {
     @State private var voiceMode = false
     @State private var voiceHold = TaskVoiceHold()
     @State private var voiceGestureConsumed = false
+    @State private var voiceHoldShowsAction = false
     @State private var accessibleVoiceHold = false
     @State private var voiceButtonFrame = CGRect.zero
     @State private var recordingAudioID: UUID?
@@ -345,10 +346,10 @@ struct TaskEditorView: View {
                     Button("粘贴图片") { if let image = UIPasteboard.general.image, let data = image.jpegData(compressionQuality: 0.9) { do { try addImage(data) } catch { self.error = error.localizedDescription } } else { error = "剪贴板中没有可用图片" } }
                 } label: { Image(systemName: "plus.circle").font(.system(size: 24)).frame(width: 36, height: 48) }
                     .accessibilityLabel("添加图片或拍摄").disabled(voiceHold.isActive)
-                if !voiceMode || processing {
+                if !voiceMode || (voiceHold.isActive ? voiceHoldShowsAction : processing) {
                     Button { if processing { cancelAnalysis(); persistDraft() } else { submit() } } label: {
-                        Image(systemName: processing ? "stop.fill" : "arrow.up")
-                            .font(.system(size: 18, weight: .semibold)).frame(width: 44, height: 48)
+                        Text(processing ? "停止" : "发送")
+                            .font(.subheadline.weight(.semibold)).frame(width: 48, height: 48)
                             .foregroundStyle(.white).background(AppTheme.pine, in: RoundedRectangle(cornerRadius: 12))
                     }.accessibilityLabel(processing ? "停止" : "发送")
                     .disabled(voiceHold.isActive || (!processing && (isRecording || transcribing || (draft.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && pendingImages.isEmpty))))
@@ -440,9 +441,8 @@ struct TaskEditorView: View {
                         .position(x: voiceButtonFrame.midX, y: voiceButtonFrame.midY)
                 }
                 .animation(.easeOut(duration: 0.12), value: armed)
-                .allowsHitTesting(false).accessibilityHidden(true)
             }
-        }
+        }.allowsHitTesting(false).accessibilityHidden(true)
     }
 
     private func updateVoiceTarget(_ point: CGPoint) {
@@ -623,6 +623,7 @@ struct TaskEditorView: View {
             catch { speechError = error.localizedDescription; modelSettings = true; return }
         }
         voice.cancel(); voice.text = ""
+        voiceHoldShowsAction = processing
         let token = voiceHold.begin(); accessibleVoiceHold = accessibility
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         if registry.selected(.transcription) != nil {
