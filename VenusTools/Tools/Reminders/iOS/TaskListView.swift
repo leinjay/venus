@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 enum TaskRoute: Hashable {
     case detail(UUID), edit(UUID), new, restore(UUID, UUID)
@@ -217,7 +218,7 @@ struct TaskCard: View {
     var onOpen: () -> Void
     var onToggle: () -> Void
     var onDelete: () -> Void
-    @GestureState private var dragOffset: CGFloat = 0
+    @State private var dragOffset: CGFloat = 0
 
     private var isRevealed: Bool { revealedTaskID == task.id }
     private var actionWidth: CGFloat { compact ? 56 : 76 }
@@ -296,6 +297,20 @@ struct TaskCard: View {
         withAnimation(.easeOut(duration: 0.2)) { revealedTaskID = id }
     }
 
+    private func tapCard() {
+        if revealedTaskID != nil { reveal(nil) } else { onOpen() }
+    }
+
+    private func finishSwipe(_ translation: CGFloat?) {
+        withAnimation(.easeOut(duration: 0.2)) {
+            if let translation {
+                if translation <= -24 { revealedTaskID = task.id }
+                if translation >= 24, isRevealed { revealedTaskID = nil }
+            }
+            dragOffset = 0
+        }
+    }
+
     private func actionButton(_ title: String, color: Color, action: @escaping () -> Void) -> some View {
         Button {
             reveal(nil)
@@ -310,12 +325,12 @@ struct TaskCard: View {
 
     var body: some View {
         let offset = min(0, max(-revealWidth, (isRevealed ? -revealWidth : 0) + dragOffset))
-        Button {
-            if revealedTaskID != nil { reveal(nil) } else { onOpen() }
-        } label: {
-            cardContent
-        }
-        .buttonStyle(.plain)
+        cardContent
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { tapCard() }
+        .accessibilityAction(named: Text(toggleTitle)) { reveal(nil); onToggle() }
+        .accessibilityAction(named: Text("删除")) { reveal(nil); onDelete() }
         .offset(x: offset)
         .background(alignment: .trailing) {
             HStack(spacing: 0) {
@@ -325,23 +340,85 @@ struct TaskCard: View {
             .allowsHitTesting(isRevealed)
             .accessibilityHidden(!isRevealed)
         }
+        .overlay {
+            TaskCardTouchSurface(
+                isRevealed: isRevealed,
+                onTap: tapCard,
+                onSwipeChanged: { dragOffset = $0 },
+                onSwipeFinished: finishSwipe
+            )
+            .padding(.trailing, -offset)
+            .accessibilityHidden(true)
+        }
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .contentShape(Rectangle())
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 12, coordinateSpace: .global)
-                .updating($dragOffset) { value, offset, _ in
-                    let delta = value.translation
-                    if abs(delta.width) > abs(delta.height) { offset = delta.width }
-                }
-                .onEnded { value in
-                    let delta = value.translation
-                    guard abs(delta.width) > abs(delta.height) else { return }
-                    if delta.width < -24 { reveal(task.id) }
-                    if delta.width > 24, isRevealed { reveal(nil) }
-                }
-        )
-        .accessibilityAction(named: Text(toggleTitle)) { onToggle() }
-        .accessibilityAction(named: Text("删除")) { onDelete() }
+        .onDisappear {
+            if isRevealed { revealedTaskID = nil }
+        }
+    }
+}
+
+private struct TaskCardTouchSurface: UIViewRepresentable {
+    var isRevealed: Bool
+    var onTap: () -> Void
+    var onSwipeChanged: (CGFloat) -> Void
+    var onSwipeFinished: (CGFloat?) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(surface: self) }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        let coordinator = context.coordinator
+        let pan = UIPanGestureRecognizer(target: coordinator, action: #selector(Coordinator.panned(_:)))
+        pan.maximumNumberOfTouches = 1
+        pan.delegate = coordinator
+        let tap = UITapGestureRecognizer(target: coordinator, action: #selector(Coordinator.tapped))
+        tap.delegate = coordinator
+        tap.require(toFail: pan)
+        view.addGestureRecognizer(pan)
+        view.addGestureRecognizer(tap)
+        return view
+    }
+
+    func updateUIView(_ view: UIView, context: Context) {
+        context.coordinator.surface = self
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var surface: TaskCardTouchSurface
+
+        init(surface: TaskCardTouchSurface) { self.surface = surface }
+
+        @objc func tapped() { surface.onTap() }
+
+        @objc func panned(_ recognizer: UIPanGestureRecognizer) {
+            let translation = recognizer.translation(in: recognizer.view?.window).x
+            switch recognizer.state {
+            case .began, .changed: surface.onSwipeChanged(translation)
+            case .ended: surface.onSwipeFinished(translation)
+            case .cancelled, .failed: surface.onSwipeFinished(nil)
+            default: break
+            }
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
+            let movement = pan.translation(in: pan.view?.window)
+            return abs(movement.x) > abs(movement.y) && (movement.x < 0 || surface.isRevealed)
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
+            // Give the card pan first refusal. A vertical drag fails its direction check and goes to the scroll view.
+            gestureRecognizer is UIPanGestureRecognizer && isEnclosingScrollPan(other, for: gestureRecognizer)
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRequireFailureOf other: UIGestureRecognizer) -> Bool {
+            gestureRecognizer is UITapGestureRecognizer && isEnclosingScrollPan(other, for: gestureRecognizer)
+        }
+
+        private func isEnclosingScrollPan(_ other: UIGestureRecognizer, for gesture: UIGestureRecognizer) -> Bool {
+            guard let scroll = other.view as? UIScrollView else { return false }
+            return other === scroll.panGestureRecognizer && gesture.view?.isDescendant(of: scroll) == true
+        }
     }
 }
 
