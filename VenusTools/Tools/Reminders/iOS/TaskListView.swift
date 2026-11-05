@@ -10,6 +10,8 @@ struct RemindersView: View {
     @EnvironmentObject private var navigation: AppNavigation
     @Environment(\.scenePhase) private var scenePhase
     @State private var path: [TaskRoute] = []
+    @State private var revealedTaskID: UUID?
+    @State private var taskToDelete: ReminderItem?
     @State private var query = ""
     @State private var keywords: String?
     @State private var explanation = ""
@@ -116,8 +118,18 @@ struct RemindersView: View {
                     if filtered.isEmpty {
                         ContentUnavailableView(store.reminders.isEmpty ? "从一件小事开始" : "没有匹配任务", systemImage: "tray", description: Text(store.reminders.isEmpty ? "点击右上角添加任务，用对话或表单记录。" : "试试其他关键词或清除过滤条件。"))
                     } else {
-                        LazyVGrid(columns: grid ? [GridItem(.flexible()), GridItem(.flexible())] : [GridItem(.flexible())], spacing: 12) {
-                            ForEach(filtered) { task in TaskCard(task: task, blocked: store.unfinishedPrerequisites(task), compact: grid, onOpen: { path.append(.detail(task.id)) }, onToggle: { store.toggle(task) }) }
+                        TimelineView(.periodic(from: .now, by: 60)) { timeline in
+                            LazyVGrid(columns: grid ? [GridItem(.flexible()), GridItem(.flexible())] : [GridItem(.flexible())], spacing: 12) {
+                                ForEach(filtered) { task in
+                                    TaskCard(
+                                        task: task, blocked: store.unfinishedPrerequisites(task), now: timeline.date, compact: grid,
+                                        revealedTaskID: $revealedTaskID,
+                                        onOpen: { path.append(.detail(task.id)) },
+                                        onToggle: { store.toggle(task) },
+                                        onDelete: { taskToDelete = task }
+                                    )
+                                }
+                            }
                         }
                     }
                     Text(store.notificationMessage).font(.caption).foregroundStyle(.secondary)
@@ -160,6 +172,14 @@ struct RemindersView: View {
         .onChange(of: scenePhase) { _, phase in if phase == .active { store.refreshNotifications() } }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in store.refreshNotifications() }
         .onChange(of: store.notificationTaskID) { _, id in if let id { if store.item(id) != nil { path = [.detail(id)] } else { searchError = "该任务已删除或不存在" }; store.notificationTaskID = nil } }
+        .confirmationDialog("移到回收站？", isPresented: Binding(
+            get: { taskToDelete != nil },
+            set: { if !$0 { taskToDelete = nil } }
+        ), titleVisibility: .visible, presenting: taskToDelete) { task in
+            Button("删除", role: .destructive) { store.remove(task) }
+        } message: { task in
+            Text("30 天内可恢复。\(store.reminders.filter { $0.prerequisiteIDs.contains(task.id) }.count) 项后续任务会解除此依赖。")
+        }
         .alert("请检查", isPresented: Binding(get: { store.errorMessage != nil || searchError != nil }, set: { if !$0 { store.errorMessage = nil; searchError = nil } })) { Button("知道了") { store.errorMessage = nil; searchError = nil } } message: { Text(searchError ?? store.errorMessage ?? "") }
     }
 
@@ -191,48 +211,137 @@ struct RemindersView: View {
 struct TaskCard: View {
     let task: ReminderItem
     let blocked: Int
-    var compact = false
+    let now: Date
+    let compact: Bool
+    @Binding var revealedTaskID: UUID?
     var onOpen: () -> Void
     var onToggle: () -> Void
+    var onDelete: () -> Void
+    @GestureState private var dragOffset: CGFloat = 0
+
+    private var isRevealed: Bool { revealedTaskID == task.id }
+    private var actionWidth: CGFloat { compact ? 56 : 76 }
+    private var revealWidth: CGFloat { actionWidth * 2 }
+    private var toggleTitle: String { task.isDone ? "标为未完成" : "标为已完成" }
+    private var reminderDate: Date? { task.schedule.trigger() }
+
+    private var isOverdue: Bool {
+        guard !task.isDone, let reminderDate else { return false }
+        let cutoff = task.schedule.mode == .day ? Calendar.current.startOfDay(for: now) : now
+        return reminderDate < cutoff
+    }
+
     private var reminderTime: String {
-        guard let date = task.schedule.trigger() else { return "未安排时间" }
+        guard let reminderDate else { return "未安排时间" }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
         formatter.dateFormat = "yyyy年M月d日 HH:mm"
-        return formatter.string(from: date)
+        return formatter.string(from: reminderDate)
     }
-    private var badgeRow: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 4) {
-                AccentLabel(title: task.isDone ? "已完成" : "未完成", color: task.isDone ? AppTheme.pine : AppTheme.amber)
-                if task.priority != .unspecified { AccentLabel(title: task.priority.title, color: task.priority == .high ? AppTheme.terracotta : AppTheme.pine) }
-                ForEach(Array(task.tags.enumerated()), id: \.offset) { _, tag in
-                    AccentLabel(title: "\(tag.key):\(tag.value)", color: AppTheme.pine)
+
+    @ViewBuilder private var badges: some View {
+        AccentLabel(title: task.isDone ? "已完成" : "未完成", color: task.isDone ? AppTheme.pine : AppTheme.amber)
+        if isOverdue { AccentLabel(title: "逾期", color: .red) }
+        if task.priority != .unspecified {
+            AccentLabel(title: task.priority.title, color: task.priority == .high ? AppTheme.terracotta : AppTheme.pine)
+        }
+        ForEach(Array(task.tags.enumerated()), id: \.offset) { _, tag in
+            AccentLabel(title: "\(tag.key):\(tag.value)", color: AppTheme.pine)
+        }
+    }
+
+    private var title: some View {
+        HStack(alignment: .top, spacing: 6) {
+            if task.isDone {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(AppTheme.pine).accessibilityHidden(true)
+            }
+            Text(task.title).foregroundStyle(AppTheme.ink)
+                .multilineTextAlignment(.leading).strikethrough(task.isDone).lineLimit(compact ? 4 : 2)
+        }.font(.headline)
+    }
+
+    private var cardContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 8) {
+                    title.fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 0)
+                    HStack(spacing: 4) { badges }.fixedSize(horizontal: true, vertical: false)
+                }
+                VStack(alignment: .trailing, spacing: 6) {
+                    title.frame(maxWidth: .infinity, alignment: .leading)
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 4) { badges }.fixedSize(horizontal: true, vertical: false)
+                        VStack(alignment: .trailing, spacing: 4) { badges }
+                    }
                 }
             }
-        }.fixedSize(horizontal: false, vertical: true).frame(maxWidth: compact ? .infinity : 170, alignment: .trailing)
+            if !task.summary.isEmpty {
+                Text(task.summary).font(.caption).foregroundStyle(AppTheme.secondary).lineLimit(2)
+            }
+            HStack {
+                Text(reminderTime).foregroundStyle(AppTheme.secondary).multilineTextAlignment(.leading)
+                Spacer(minLength: 0)
+                if blocked > 0 {
+                    Label("\(blocked)", systemImage: "link").foregroundStyle(AppTheme.amber)
+                }
+            }.font(.caption)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .surfaceCard(padding: compact ? 12 : 16)
+        .contentShape(Rectangle())
     }
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Button(action: onToggle) { Image(systemName: task.isDone ? "checkmark.circle.fill" : "circle").font(.title3).foregroundStyle(task.isDone ? AppTheme.pine : AppTheme.amber).padding(.vertical, 3) }.buttonStyle(.plain).accessibilityLabel(task.isDone ? "恢复未完成" : "标记完成")
-            Button(action: onOpen) {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(alignment: .top, spacing: 8) {
-                        Text(task.title).font(.system(size: 16, weight: .semibold)).foregroundStyle(AppTheme.ink).multilineTextAlignment(.leading).strikethrough(task.isDone).lineLimit(compact ? 4 : 2)
-                        Spacer(minLength: 4)
-                        if !compact { badgeRow }
-                    }
-                    if compact { badgeRow }
-                    if !task.summary.isEmpty { Text(task.summary).font(.caption).foregroundStyle(AppTheme.secondary).lineLimit(2) }
-                    HStack {
-                        if blocked > 0 { Label("\(blocked)", systemImage: "link").font(.caption).foregroundStyle(AppTheme.amber) }
-                        Spacer(minLength: 0)
-                        Text(reminderTime).font(.caption).foregroundStyle(AppTheme.secondary).multilineTextAlignment(.trailing)
-                    }
 
-                }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-            }.buttonStyle(.plain)
-        }.frame(maxWidth: .infinity, alignment: .leading).surfaceCard(padding: compact ? 12 : 16)
+    private func reveal(_ id: UUID?) {
+        withAnimation(.easeOut(duration: 0.2)) { revealedTaskID = id }
+    }
+
+    private func actionButton(_ title: String, color: Color, action: @escaping () -> Void) -> some View {
+        Button {
+            reveal(nil)
+            action()
+        } label: {
+            Text(title).font(.caption.weight(.semibold)).multilineTextAlignment(.center)
+                .padding(.horizontal, 4)
+                .frame(width: actionWidth).frame(maxHeight: .infinity)
+                .foregroundStyle(.white).background(color)
+        }.buttonStyle(.plain)
+    }
+
+    var body: some View {
+        let offset = min(0, max(-revealWidth, (isRevealed ? -revealWidth : 0) + dragOffset))
+        Button {
+            if revealedTaskID != nil { reveal(nil) } else { onOpen() }
+        } label: {
+            cardContent
+        }
+        .buttonStyle(.plain)
+        .offset(x: offset)
+        .background(alignment: .trailing) {
+            HStack(spacing: 0) {
+                actionButton(toggleTitle, color: AppTheme.pine, action: onToggle)
+                actionButton("删除", color: .red, action: onDelete)
+            }
+            .allowsHitTesting(isRevealed)
+            .accessibilityHidden(!isRevealed)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .contentShape(Rectangle())
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 12, coordinateSpace: .global)
+                .updating($dragOffset) { value, offset, _ in
+                    let delta = value.translation
+                    if abs(delta.width) > abs(delta.height) { offset = delta.width }
+                }
+                .onEnded { value in
+                    let delta = value.translation
+                    guard abs(delta.width) > abs(delta.height) else { return }
+                    if delta.width < -24 { reveal(task.id) }
+                    if delta.width > 24, isRevealed { reveal(nil) }
+                }
+        )
+        .accessibilityAction(named: Text(toggleTitle)) { onToggle() }
+        .accessibilityAction(named: Text("删除")) { onDelete() }
     }
 }
 
