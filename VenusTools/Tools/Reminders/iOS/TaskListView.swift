@@ -63,12 +63,6 @@ struct RemindersView: View {
         NavigationStack(path: $path) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    HStack {
-                        Image(systemName: "magnifyingglass").foregroundStyle(AppTheme.secondary)
-                        TextField("标题、内容、标签或自然语言", text: $query)
-                            .submitLabel(.search)
-                        if !query.isEmpty { Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }.accessibilityLabel("清除搜索") }
-                    }.padding(12).background(AppTheme.line.opacity(0.65), in: Capsule())
                     BrandHeader(eyebrow: "MAKE ROOM FOR WHAT MATTERS", title: "任务", subtitle: "琐事、计划和想做的事，都有一个位置。")
                     HStack {
                         Label("\(store.reminders.filter { !$0.isDone }.count) 项待办", systemImage: "circle.dotted")
@@ -77,18 +71,28 @@ struct RemindersView: View {
                     }.font(.subheadline).surfaceCard(padding: 14)
                     if !explanation.isEmpty { HStack(alignment: .top) { Image(systemName: "sparkles"); Text(explanation); Spacer(); Button("清除") { resetFilters() } }.font(.caption).surfaceCard(padding: 12) }
                     HStack {
+                        Image(systemName: "magnifyingglass").foregroundStyle(AppTheme.secondary)
+                        TextField("标题、内容、标签或自然语言", text: $query)
+                            .submitLabel(.search)
+                        if !query.isEmpty { Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }.accessibilityLabel("清除搜索") }
+                    }.padding(12).background(AppTheme.line.opacity(0.65), in: Capsule())
+                    HStack {
                         Picker("完成状态", selection: $status) { Text("未完成").tag(0); Text("已完成").tag(1); Text("全部").tag(2) }.pickerStyle(.segmented)
                         Button { grid.toggle() } label: { Image(systemName: grid ? "list.bullet" : "square.grid.2x2") }.accessibilityLabel(grid ? "切换列表" : "切换卡片")
                     }
-                    DisclosureGroup("筛选与排序") {
+                    HStack(spacing: 8) {
+                        Picker("排序方式", selection: Binding(get: { sort }, set: { sort = $0; sortExplicit = true })) {
+                            Text("执行时间：早到晚").tag(0); Text("添加时间：新到旧").tag(1); Text("重要程度：高到低").tag(2)
+                        }.labelsHidden()
+                        Picker("重要程度", selection: $priority) {
+                            Text("全部重要程度").tag(-1)
+                            ForEach(TaskPriority.allCases) { Text($0.title).tag($0.rawValue) }
+                        }.labelsHidden()
+                        Spacer(minLength: 0)
+                        Button("重置") { resetFilters(); sort = 0; sortExplicit = false }
+                    }.font(.caption).lineLimit(1).minimumScaleFactor(0.7)
+                    DisclosureGroup("更多筛选") {
                         VStack(alignment: .leading, spacing: 12) {
-                            Picker("排序方式", selection: Binding(get: { sort }, set: { sort = $0; sortExplicit = true })) {
-                                Text("执行时间：早到晚").tag(0); Text("添加时间：新到旧").tag(1); Text("重要程度：高到低").tag(2)
-                            }
-                            Picker("重要程度", selection: $priority) {
-                                Text("全部重要程度").tag(-1)
-                                ForEach(TaskPriority.allCases) { Text($0.title).tag($0.rawValue) }
-                            }
                             TextField("标签，例如 领域:生活,地点:家", text: $tagQuery).textFieldStyle(.roundedBorder)
                             Toggle("多个标签匹配任意一个", isOn: $tagsMatchAny)
                             Toggle("限定开始日期", isOn: Binding(get: { fromDate != nil }, set: { fromDate = $0 ? Date() : nil }))
@@ -96,7 +100,6 @@ struct RemindersView: View {
                             Toggle("限定结束日期", isOn: Binding(get: { toDate != nil }, set: { toDate = $0 ? Date() : nil }))
                             if toDate != nil { DatePicker("到", selection: Binding(get: { toDate ?? Date() }, set: { toDate = $0 }), displayedComponents: .date) }
                             if sortExplicit { Button("查找时优先相关性") { sortExplicit = false } }
-                            Button("清除查找与过滤") { resetFilters() }
                         }.font(.subheadline).padding(.top, 8)
                     }.font(.subheadline).surfaceCard(padding: 12)
                     HStack {
