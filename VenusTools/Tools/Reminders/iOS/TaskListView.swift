@@ -19,7 +19,6 @@ struct RemindersView: View {
     @State private var tagsMatchAny = false
     @State private var fromDate: Date?
     @State private var toDate: Date?
-    @State private var filter = false
     @State private var recycle = false
     @State private var today = false
     @State private var manageAfterToday = false
@@ -64,6 +63,12 @@ struct RemindersView: View {
         NavigationStack(path: $path) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    HStack {
+                        Image(systemName: "magnifyingglass").foregroundStyle(AppTheme.secondary)
+                        TextField("标题、内容、标签或自然语言", text: $query)
+                            .submitLabel(.search)
+                        if !query.isEmpty { Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }.accessibilityLabel("清除搜索") }
+                    }.padding(12).background(AppTheme.line.opacity(0.65), in: Capsule())
                     BrandHeader(eyebrow: "MAKE ROOM FOR WHAT MATTERS", title: "任务", subtitle: "琐事、计划和想做的事，都有一个位置。")
                     HStack {
                         Label("\(store.reminders.filter { !$0.isDone }.count) 项待办", systemImage: "circle.dotted")
@@ -75,6 +80,25 @@ struct RemindersView: View {
                         Picker("完成状态", selection: $status) { Text("未完成").tag(0); Text("已完成").tag(1); Text("全部").tag(2) }.pickerStyle(.segmented)
                         Button { grid.toggle() } label: { Image(systemName: grid ? "list.bullet" : "square.grid.2x2") }.accessibilityLabel(grid ? "切换列表" : "切换卡片")
                     }
+                    DisclosureGroup("筛选与排序") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Picker("排序方式", selection: Binding(get: { sort }, set: { sort = $0; sortExplicit = true })) {
+                                Text("执行时间：早到晚").tag(0); Text("添加时间：新到旧").tag(1); Text("重要程度：高到低").tag(2)
+                            }
+                            Picker("重要程度", selection: $priority) {
+                                Text("全部重要程度").tag(-1)
+                                ForEach(TaskPriority.allCases) { Text($0.title).tag($0.rawValue) }
+                            }
+                            TextField("标签，例如 领域:生活,地点:家", text: $tagQuery).textFieldStyle(.roundedBorder)
+                            Toggle("多个标签匹配任意一个", isOn: $tagsMatchAny)
+                            Toggle("限定开始日期", isOn: Binding(get: { fromDate != nil }, set: { fromDate = $0 ? Date() : nil }))
+                            if fromDate != nil { DatePicker("从", selection: Binding(get: { fromDate ?? Date() }, set: { fromDate = $0 }), displayedComponents: .date) }
+                            Toggle("限定结束日期", isOn: Binding(get: { toDate != nil }, set: { toDate = $0 ? Date() : nil }))
+                            if toDate != nil { DatePicker("到", selection: Binding(get: { toDate ?? Date() }, set: { toDate = $0 }), displayedComponents: .date) }
+                            if sortExplicit { Button("查找时优先相关性") { sortExplicit = false } }
+                            Button("清除查找与过滤") { resetFilters() }
+                        }.font(.subheadline).padding(.top, 8)
+                    }.font(.subheadline).surfaceCard(padding: 12)
                     HStack {
                         Text("\(filtered.count) 项结果").font(.caption).foregroundStyle(.secondary)
                         Spacer()
@@ -99,9 +123,7 @@ struct RemindersView: View {
             }
             .background(AppTheme.canvas.ignoresSafeArea())
             .navigationTitle("任务提醒").navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $query, prompt: "标题、内容、标签或自然语言")
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button { filter = true } label: { Image(systemName: "line.3.horizontal.decrease.circle") }.accessibilityLabel("筛选与排序") }
                 ToolbarItem(placement: .topBarTrailing) { Button { path.append(.new) } label: { Image(systemName: "plus") }.accessibilityLabel("新建任务") }
                 ToolbarItem(placement: .topBarTrailing) { Menu {
                     Button("回收站（\(store.deleted.count)）") { recycle = true }
@@ -124,7 +146,6 @@ struct RemindersView: View {
             }
         }
         .overlay { if path.last?.isEditing != true { TaskAssistantButton { today = true } } }
-        .sheet(isPresented: $filter) { filterSheet }
         .sheet(isPresented: $recycle) { TaskRecycleView(store: store) }
         .sheet(isPresented: $today, onDismiss: {
             if manageAfterToday { manageAfterToday = false; navigation.openModels(onReturn: { today = true }) }
@@ -139,25 +160,7 @@ struct RemindersView: View {
         .alert("请检查", isPresented: Binding(get: { store.errorMessage != nil || searchError != nil }, set: { if !$0 { store.errorMessage = nil; searchError = nil } })) { Button("知道了") { store.errorMessage = nil; searchError = nil } } message: { Text(searchError ?? store.errorMessage ?? "") }
     }
 
-    private var filterSheet: some View {
-        NavigationStack { Form {
-            Section("排序") {
-                Picker("排序方式", selection: Binding(get: { sort }, set: { sort = $0; sortExplicit = true })) { Text("执行时间：早到晚").tag(0); Text("添加时间：新到旧").tag(1); Text("重要程度：高到低").tag(2) }
-                if sortExplicit { Button("查找时优先相关性") { sortExplicit = false } }
-            }
-            Section("过滤") {
-                Picker("重要程度", selection: $priority) { Text("全部").tag(-1); ForEach(TaskPriority.allCases) { Text($0.title).tag($0.rawValue) } }
-                TextField("标签，例如 领域:生活,地点:家", text: $tagQuery)
-                Toggle("多个标签匹配任意一个", isOn: $tagsMatchAny)
-                Toggle("限定开始日期", isOn: Binding(get: { fromDate != nil }, set: { fromDate = $0 ? Date() : nil }))
-                if fromDate != nil { DatePicker("从", selection: Binding(get: { fromDate ?? Date() }, set: { fromDate = $0 }), displayedComponents: .date) }
-                Toggle("限定结束日期", isOn: Binding(get: { toDate != nil }, set: { toDate = $0 ? Date() : nil }))
-                if toDate != nil { DatePicker("到", selection: Binding(get: { toDate ?? Date() }, set: { toDate = $0 }), displayedComponents: .date) }
-            }
-            Button("清除查找与过滤") { resetFilters() }
-        }.navigationTitle("筛选与排序").toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { filter = false } } } }
-    }
-    private func resetFilters() { query = ""; keywords = nil; explanation = ""; status = 0; priority = -1; tagQuery = ""; fromDate = nil; toDate = nil }
+    private func resetFilters() { query = ""; keywords = nil; explanation = ""; status = 0; priority = -1; tagQuery = ""; fromDate = nil; toDate = nil; tagsMatchAny = false }
     private func intelligentSearch() {
         searchTask?.cancel(); searchID = UUID(); let token = searchID, input = query
         guard input.count <= 2000 else { searchError = "查找条件最多 2,000 字"; return }
@@ -188,16 +191,42 @@ struct TaskCard: View {
     var compact = false
     var onOpen: () -> Void
     var onToggle: () -> Void
+    private var reminderTime: String {
+        guard let date = task.schedule.trigger() else { return "未安排时间" }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "yyyy年M月d日 HH:mm"
+        return formatter.string(from: date)
+    }
+    private var badgeRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 4) {
+                AccentLabel(title: task.isDone ? "已完成" : "未完成", color: task.isDone ? AppTheme.pine : AppTheme.amber)
+                if task.priority != .unspecified { AccentLabel(title: task.priority.title, color: task.priority == .high ? AppTheme.terracotta : AppTheme.pine) }
+                ForEach(Array(task.tags.enumerated()), id: \.offset) { _, tag in
+                    AccentLabel(title: "\(tag.key):\(tag.value)", color: AppTheme.pine)
+                }
+            }
+        }.fixedSize(horizontal: false, vertical: true).frame(maxWidth: compact ? .infinity : 170, alignment: .trailing)
+    }
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Button(action: onToggle) { Image(systemName: task.isDone ? "checkmark.circle.fill" : "circle").font(.title3).foregroundStyle(task.isDone ? AppTheme.pine : AppTheme.amber).padding(.vertical, 3) }.buttonStyle(.plain).accessibilityLabel(task.isDone ? "恢复未完成" : "标记完成")
             Button(action: onOpen) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(task.title).font(.system(size: 16, weight: .semibold)).foregroundStyle(AppTheme.ink).multilineTextAlignment(.leading).strikethrough(task.isDone).lineLimit(compact ? 4 : 2)
+                    HStack(alignment: .top, spacing: 8) {
+                        Text(task.title).font(.system(size: 16, weight: .semibold)).foregroundStyle(AppTheme.ink).multilineTextAlignment(.leading).strikethrough(task.isDone).lineLimit(compact ? 4 : 2)
+                        Spacer(minLength: 4)
+                        if !compact { badgeRow }
+                    }
+                    if compact { badgeRow }
                     if !task.summary.isEmpty { Text(task.summary).font(.caption).foregroundStyle(AppTheme.secondary).lineLimit(2) }
-                    Text(task.schedule.label).font(.caption).foregroundStyle(AppTheme.secondary)
-                    HStack { if task.priority != .unspecified { AccentLabel(title: task.priority.title, color: task.priority == .high ? AppTheme.terracotta : AppTheme.pine) }; if blocked > 0 { Label("\(blocked)", systemImage: "link").font(.caption).foregroundStyle(AppTheme.amber) } }
-                    if !task.tags.isEmpty { Text(task.tags.prefix(3).map { "\($0.key):\($0.value)" }.joined(separator: " · ")).font(.caption2).foregroundStyle(AppTheme.secondary).lineLimit(1) }
+                    HStack {
+                        if blocked > 0 { Label("\(blocked)", systemImage: "link").font(.caption).foregroundStyle(AppTheme.amber) }
+                        Spacer(minLength: 0)
+                        Text(reminderTime).font(.caption).foregroundStyle(AppTheme.secondary).multilineTextAlignment(.trailing)
+                    }
+
                 }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }.buttonStyle(.plain)
         }.frame(maxWidth: .infinity, alignment: .leading).surfaceCard(padding: compact ? 12 : 16)
