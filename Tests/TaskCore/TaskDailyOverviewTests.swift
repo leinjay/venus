@@ -24,6 +24,7 @@ final class TaskDailyOverviewTests: XCTestCase {
         let yesterday = ReminderItem(title: "昨天未做", dueAt: now.addingTimeInterval(-86_400))
         var done = pending
         done.id = UUID()
+        done.title = "已完成的单次任务"
         done.isDone = true
         done.completedAt = now
         var recurring = pending
@@ -50,6 +51,8 @@ final class TaskDailyOverviewTests: XCTestCase {
         XCTAssertEqual(overview.selected.count, 3)
         XCTAssertTrue(overview.compactCounts.contains("待办 2"))
         XCTAssertTrue(overview.compactCounts.contains("完成 2"))
+        XCTAssertTrue(overview.context.contains("已完成的单次任务"))
+        XCTAssertTrue(overview.context.contains("未完成前置=0"))
     }
 
     func testEmptyOverviewAndMidnightHaveDeterministicFallbacks() {
