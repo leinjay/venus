@@ -70,11 +70,15 @@ struct TaskEditorView: View {
     @State private var voicePrefix = ""
     @State private var lastVoiceInput = ""
     @State private var imageToEdit: TaskImage?
+    private let isEmbedded: Bool
+    private let isActive: Bool
     var onSaved: (UUID) -> Void
     var onClose: () -> Void
 
-    init(store: ReminderStore, task: ReminderItem? = nil, restoredVersion: ReminderItem? = nil, onSaved: @escaping (UUID) -> Void, onClose: @escaping () -> Void) {
+    init(store: ReminderStore, task: ReminderItem? = nil, restoredVersion: ReminderItem? = nil, isEmbedded: Bool = false, isActive: Bool = true, onSaved: @escaping (UUID) -> Void, onClose: @escaping () -> Void) {
         self.store = store; self.onSaved = onSaved; self.onClose = onClose
+        self.isEmbedded = isEmbedded
+        self.isActive = isActive
         var value = TaskDraft(); value.base = task; value.task = restoredVersion ?? task ?? ReminderItem()
         if let restoredVersion, let task { value.task.id = task.id; value.task.lifecycle = task.lifecycle; value.task.deletedAt = nil; value.task.notificationVersion = task.notificationVersion; value.tab = 1; _ = restoredVersion }
         var notice: String?
@@ -110,11 +114,25 @@ struct TaskEditorView: View {
         .background(AppTheme.canvas.ignoresSafeArea())
         .coordinateSpace(name: "task-editor")
         .overlay { recordingOverlay }
-        .navigationTitle(draft.base == nil ? "新建任务" : "编辑任务")
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden()
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) { Button("返回", action: leaveKeepingDraft) }
+    }
+
+    @ViewBuilder private var navigationEditor: some View {
+        if isEmbedded {
+            editorContent
+        } else {
+            editorContent
+                .navigationTitle(draft.base == nil ? "新建任务" : "编辑任务")
+                .navigationBarTitleDisplayMode(.inline)
+                .navigationBarBackButtonHidden()
+                .toolbar(.hidden, for: .tabBar)
+        }
+    }
+
+    @ToolbarContentBuilder private var editorToolbar: some ToolbarContent {
+        if isActive {
+            if !isEmbedded {
+                ToolbarItem(placement: .topBarLeading) { Button("返回", action: leaveKeepingDraft) }
+            }
             ToolbarItem(placement: .topBarTrailing) { Button(action: showModelOptions) { Image(systemName: "cpu") }.accessibilityLabel("选择模型与管理配置") }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -128,12 +146,28 @@ struct TaskEditorView: View {
             }
             ToolbarItem(placement: .topBarTrailing) { Button("保存", action: prepareSave).fontWeight(.semibold).accessibilityHint("保存当前任务属性，停止尚未完成的回复") }
         }
-        .toolbar(.hidden, for: .tabBar)
     }
 
     private var observedEditor: some View {
-        editorContent
-        .onAppear { editorVisible = true }
+        navigationEditor
+        .toolbar { editorToolbar }
+        .onAppear { editorVisible = isActive }
+        .onChange(of: isActive) { _, active in
+            editorVisible = active
+            if active {
+                if !draft.hasPendingEdits, let base = draft.base,
+                   let latest = store.item(base.id), latest.revision != base.revision {
+                    draft.base = latest
+                    draft.task = latest
+                }
+            } else {
+                inputFocused = false
+                cancelAnalysis()
+                cancelSpeech()
+                cancelVoiceHold()
+                persistDraft()
+            }
+        }
         .onChange(of: draft.task) { old, new in
             for field in TaskField.allCases where field.value(old) != field.value(new) { draft.fieldRevisions[field.rawValue, default: 0] += 1 }
             persistDraft()
@@ -172,7 +206,7 @@ struct TaskEditorView: View {
         }
         .onDisappear { editorVisible = false; cancelAnalysis(); cancelSpeech(); cancelVoiceHold(); if !finished { persistDraft() } }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { editorVisible = true }
+            if phase == .active { editorVisible = isActive }
             else {
                 cancelVoiceHold()
                 if phase == .background { editorVisible = false; cancelAnalysis(); cancelSpeech(); persistDraft() }
@@ -586,6 +620,7 @@ struct TaskEditorView: View {
     @discardableResult
     private func persistDraft() -> Bool {
         guard !finished else { return true }
+        if let base = draft.base, store.item(base.id) == nil { return true }
         var value = draft
         value.unresolvedConflicts = conflicts; value.conflictProposal = conflictingTask
         value.selectedImageIDs = draft.images.filter { pendingImages.contains($0.id) }.map(\.id)

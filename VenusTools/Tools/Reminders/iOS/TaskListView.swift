@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 enum TaskRoute: Hashable {
-    case detail(UUID), edit(UUID), new, restore(UUID, UUID), models
+    case detail(UUID), new, restore(UUID, UUID), models
     var isEditing: Bool { switch self { case .detail, .models: return false; default: return true } }
 }
 
@@ -11,6 +11,7 @@ struct RemindersView: View {
     @EnvironmentObject private var navigation: AppNavigation
     @Environment(\.scenePhase) private var scenePhase
     @State private var path: [TaskRoute] = []
+    @State private var detailEditing = false
     @State private var revealedTaskID: UUID?
     @State private var taskToDelete: ReminderItem?
     @State private var query = ""
@@ -69,7 +70,6 @@ struct RemindersView: View {
         NavigationStack(path: $path) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    BrandHeader(eyebrow: "MAKE ROOM FOR WHAT MATTERS", title: "任务", subtitle: "琐事、计划和想做的事，都有一个位置。")
                     if !explanation.isEmpty { HStack(alignment: .top) { Image(systemName: "sparkles"); Text(explanation); Spacer(); Button("清除") { resetFilters() } }.font(.caption).surfaceCard(padding: 12) }
                     HStack {
                         Image(systemName: "magnifyingglass").foregroundStyle(AppTheme.secondary)
@@ -78,7 +78,7 @@ struct RemindersView: View {
                         if !query.isEmpty { Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }.accessibilityLabel("清除搜索") }
                     }.padding(12).background(AppTheme.line.opacity(0.65), in: Capsule())
                     HStack {
-                        Picker("完成状态", selection: $status) { Text("未完成").tag(0); Text("已完成").tag(1); Text("全部").tag(2); Text("逾期").tag(3) }.pickerStyle(.segmented)
+                        Picker("完成状态", selection: $status) { Text("逾期").tag(3); Text("未完成").tag(0); Text("已完成").tag(1); Text("全部").tag(2) }.pickerStyle(.segmented)
                         Button { grid.toggle() } label: { Image(systemName: grid ? "list.bullet" : "square.grid.2x2") }.accessibilityLabel(grid ? "切换列表" : "切换卡片")
                     }
                     filterBar
@@ -129,11 +129,8 @@ struct RemindersView: View {
                         Section { ModelBindingPanel(purpose: .search) }
                     }.navigationTitle("任务使用的模型")
                         .navigationBarTitleDisplayMode(.inline)
-                case .detail(let id): TaskDetailView(store: store, taskID: id, onEdit: { path.append(.edit(id)) }, onOpen: { path.append(.detail($0)) }, onRestore: { path.append(.restore(id, $0)) })
+                case .detail(let id): TaskDetailView(store: store, taskID: id, onEditingChanged: { detailEditing = $0 }, onOpen: { path.append(.detail($0)) }, onRestore: { path.append(.restore(id, $0)) })
                 case .new: TaskEditorView(store: store, onSaved: { id in if !path.isEmpty { path.removeLast() }; path.append(.detail(id)) }, onClose: { if !path.isEmpty { path.removeLast() } })
-                case .edit(let id):
-                    if let item = store.item(id) { TaskEditorView(store: store, task: item, onSaved: { _ in if !path.isEmpty { path.removeLast() } }, onClose: { if !path.isEmpty { path.removeLast() } }) }
-                    else { ContentUnavailableView("任务已不存在", systemImage: "trash") }
                 case .restore(let id, let versionID):
                     if let item = store.item(id), let version = store.versions(id).first(where: { $0.id == versionID }) {
                         TaskEditorView(store: store, task: item, restoredVersion: version.task, onSaved: { _ in if !path.isEmpty { path.removeLast() } }, onClose: { if !path.isEmpty { path.removeLast() } })
@@ -141,7 +138,7 @@ struct RemindersView: View {
                 }
             }
         }
-        .overlay { if path.last?.isEditing != true { TaskAssistantButton { today = true } } }
+        .overlay { if path.last?.isEditing != true && !detailEditing { TaskAssistantButton { today = true } } }
         .sheet(isPresented: $showFilters) { filterSheet }
         .sheet(isPresented: $recycle) { TaskRecycleView(store: store) }
         .sheet(isPresented: $today, onDismiss: {
@@ -298,15 +295,46 @@ struct TaskCard: View {
         }.accessibilityElement(children: .combine)
     }
 
-    @ViewBuilder private var badges: some View {
-        AccentLabel(title: task.isDone ? "已完成" : "未完成", color: task.isDone ? AppTheme.pine : AppTheme.amber)
+    @ViewBuilder private var statusBadges: some View {
+        AccentLabel(title: task.schedule.recurrenceLabel, color: AppTheme.pine)
         if isOverdue { AccentLabel(title: "逾期", color: .red) }
+        AccentLabel(title: task.isDone ? "已完成" : "未完成", color: task.isDone ? AppTheme.pine : AppTheme.amber)
         if task.priority != .unspecified {
             AccentLabel(title: task.priority.title, color: task.priority == .high ? AppTheme.terracotta : AppTheme.pine)
         }
-        ForEach(Array(task.tags.enumerated()), id: \.offset) { _, tag in
-            AccentLabel(title: "\(tag.key):\(tag.value)", color: AppTheme.pine)
+    }
+
+    private var allBadges: some View {
+        HStack(spacing: 4) {
+            statusBadges
+            ForEach(Array(task.tags.enumerated()), id: \.offset) { _, tag in
+                AccentLabel(title: "\(tag.key):\(tag.value)", color: AppTheme.pine)
+            }
+        }.fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var badgeLine: some View {
+        ViewThatFits(in: .horizontal) {
+            allBadges
+            HStack(spacing: 4) {
+                statusBadges
+                if !task.tags.isEmpty { AccentLabel(title: "+\(task.tags.count)", color: AppTheme.pine) }
+            }.fixedSize(horizontal: true, vertical: false)
+            HStack(spacing: 4) {
+                AccentLabel(title: task.schedule.recurrenceLabel, color: AppTheme.pine)
+                let count = 1 + (isOverdue ? 1 : 0) + (task.priority == .unspecified ? 0 : 1) + task.tags.count
+                AccentLabel(title: "+\(count)", color: AppTheme.secondary)
+            }.lineLimit(1).minimumScaleFactor(0.65)
         }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            ([task.schedule.recurrenceLabel]
+             + (isOverdue ? ["逾期"] : [])
+             + [task.isDone ? "已完成" : "未完成"]
+             + (task.priority == .unspecified ? [] : [task.priority.title])
+             + task.tags.map { "\($0.key):\($0.value)" }).joined(separator: "，")
+        )
     }
 
     private var title: some View {
@@ -321,22 +349,17 @@ struct TaskCard: View {
 
     private var cardContent: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if compact {
-                VStack(alignment: .trailing, spacing: 6) {
-                    AccentLabel(title: task.schedule.recurrenceLabel, color: AppTheme.pine)
-                    title.frame(maxWidth: .infinity, alignment: .leading)
-                }
-            } else {
+            ViewThatFits(in: .horizontal) {
                 HStack(alignment: .top, spacing: 8) {
+                    title.fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 0)
+                    allBadges
+                }
+                VStack(alignment: .leading, spacing: 6) {
                     title.frame(maxWidth: .infinity, alignment: .leading)
-                    AccentLabel(title: task.schedule.recurrenceLabel, color: AppTheme.pine)
-                        .fixedSize(horizontal: true, vertical: false)
+                    badgeLine
                 }
             }
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 4) { badges }.fixedSize(horizontal: true, vertical: false)
-                VStack(alignment: .trailing, spacing: 4) { badges }
-            }.frame(maxWidth: .infinity, alignment: .trailing)
             if !task.summary.isEmpty {
                 Text(task.summary).font(.caption).foregroundStyle(AppTheme.secondary).lineLimit(2)
             }

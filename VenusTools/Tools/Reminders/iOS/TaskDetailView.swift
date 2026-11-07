@@ -3,10 +3,11 @@ import SwiftUI
 struct TaskDetailView: View {
     @ObservedObject var store: ReminderStore
     let taskID: UUID
-    var onEdit: () -> Void
+    var onEditingChanged: (Bool) -> Void = { _ in }
     var onOpen: (UUID) -> Void
     var onRestore: (UUID) -> Void
     @State private var tab = 0
+    @State private var editorSession: UUID?
     @State private var history = false
     @State private var executionCalendar = false
     @State private var delete = false
@@ -14,17 +15,39 @@ struct TaskDetailView: View {
     var body: some View {
         Group {
             if let task = store.item(taskID) {
-                VStack {
+                VStack(spacing: 0) {
                     Picker("详情页签", selection: Binding(get: { tab }, set: { selection in
-                        if selection == 1 { onEdit() } else { tab = selection }
-                    })) { Text("任务信息").tag(0); Text("任务编辑").tag(1); Text("依赖查看").tag(2) }.pickerStyle(.segmented).padding()
-                    if tab == 0 { information(task) }
-                    else { TaskDependencyView(tasks: store.reminders, current: taskID, onOpen: onOpen) }
+                        if selection == 1 && editorSession == nil { editorSession = UUID() }
+                        tab = selection
+                    })) { Text("任务信息").tag(0); Text("任务编辑").tag(1) }.pickerStyle(.segmented).padding()
+                    ZStack {
+                        if tab == 0 { information(task) }
+                        if let session = editorSession {
+                            TaskEditorView(
+                                store: store, task: task, isEmbedded: true, isActive: tab == 1,
+                                onSaved: { _ in
+                                    tab = 0
+                                    editorSession = nil
+                                },
+                                onClose: { tab = 0 }
+                            )
+                            .id(session)
+                            .opacity(tab == 1 ? 1 : 0)
+                            .allowsHitTesting(tab == 1)
+                            .accessibilityHidden(tab != 1)
+                        }
+                    }
                 }
                 .navigationTitle("任务详情").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) { Button { executionCalendar = true } label: { Image(systemName: "calendar") }.accessibilityLabel("执行日历") }
-                    ToolbarItem(placement: .topBarTrailing) { Menu { Button("修改记录") { history = true }; Button("移到回收站", role: .destructive) { delete = true } } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel("任务更多操作") }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Menu {
+                            Button("执行日历") { executionCalendar = true }
+                            Button("修改记录") { history = true }
+                            Button("移到回收站", role: .destructive) { delete = true }
+                        } label: { Image(systemName: "ellipsis.circle") }
+                        .accessibilityLabel("任务更多操作")
+                    }
                 }
                 .confirmationDialog("移到回收站？30 天内可恢复。\(store.reminders.filter { $0.prerequisiteIDs.contains(taskID) }.count) 项后续任务会解除此依赖，恢复时不自动重连。", isPresented: $delete, titleVisibility: .visible) { Button("移到回收站", role: .destructive) { store.remove(task); if store.item(taskID) == nil { dismiss() } } }
                 .sheet(isPresented: $executionCalendar) { TaskExecutionCalendarView(store: store, taskID: taskID) }
@@ -35,7 +58,9 @@ struct TaskDetailView: View {
                 }
             } else { ContentUnavailableView("任务已移除", systemImage: "trash", description: Text("可返回列表，在回收站查看。")) }
         }.background(AppTheme.canvas.ignoresSafeArea())
-        .onAppear { tab = 0 }
+        .onAppear { onEditingChanged(tab == 1) }
+        .onChange(of: tab) { _, value in onEditingChanged(value == 1) }
+        .onDisappear { onEditingChanged(false) }
     }
     private func information(_ task: ReminderItem) -> some View {
         ScrollView { VStack(alignment: .leading, spacing: 18) {
@@ -51,11 +76,54 @@ struct TaskDetailView: View {
                 if task.isDone { LabeledContent("完成时间", value: task.completedAt?.formatted() ?? "历史完成时间未知") }
                 if !task.tags.isEmpty { Text(task.tags.map { "\($0.key):\($0.value)" }.joined(separator: " · ")) }
             }.font(.subheadline).surfaceCard()
-            if !task.prerequisiteIDs.isEmpty {
-                VStack(alignment: .leading, spacing: 12) { Text("前置任务").font(.headline); ForEach(task.prerequisiteIDs, id: \.self) { id in if let parent = store.item(id) { Button { onOpen(id) } label: { Label(parent.title, systemImage: parent.isDone ? "checkmark.circle" : "circle.dotted") } } } }.surfaceCard()
-            }
             if !task.body.isEmpty { VStack(alignment: .leading, spacing: 12) { Text("具体内容").font(.headline); Text(.init(task.body)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }.surfaceCard() }
+            dependencySection(task)
         }.padding(20).padding(.bottom, 70) }
+    }
+
+    private func dependencySection(_ task: ReminderItem) -> some View {
+        let prerequisites = store.reminders.filter { task.prerequisiteIDs.contains($0.id) }.sorted(by: TaskRules.executionOrder)
+        let dependents = store.reminders.filter { $0.prerequisiteIDs.contains(task.id) }.sorted(by: TaskRules.executionOrder)
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Label("任务依赖", systemImage: "link").font(.headline)
+                Spacer()
+                Text("前置 \(prerequisites.count) · 后续 \(dependents.count)")
+                    .font(.caption).foregroundStyle(AppTheme.secondary)
+            }
+            if prerequisites.isEmpty && dependents.isEmpty {
+                Text("暂无前置或后续任务").font(.subheadline).foregroundStyle(AppTheme.secondary)
+            } else {
+                dependencyRows("前置任务", tasks: prerequisites)
+                dependencyRows("后续任务", tasks: dependents)
+                DisclosureGroup("查看完整依赖图") {
+                    TaskDependencyView(tasks: store.reminders, current: taskID, onOpen: onOpen)
+                        .frame(height: 360).padding(.top, 12)
+                        .background(AppTheme.canvas, in: RoundedRectangle(cornerRadius: 14))
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                }.font(.subheadline)
+            }
+        }.frame(maxWidth: .infinity, alignment: .leading).surfaceCard()
+    }
+
+    @ViewBuilder private func dependencyRows(_ title: String, tasks: [ReminderItem]) -> some View {
+        if !tasks.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(title).font(.caption).foregroundStyle(AppTheme.secondary).accessibilityAddTraits(.isHeader)
+                ForEach(tasks) { task in
+                    Button { onOpen(task.id) } label: {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: task.isDone ? "checkmark.circle.fill" : "circle.dotted")
+                            Text(task.title).multilineTextAlignment(.leading).lineLimit(2)
+                            Spacer(minLength: 4)
+                            Image(systemName: "chevron.right").font(.caption)
+                        }.font(.subheadline).foregroundStyle(AppTheme.pine)
+                            .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }.buttonStyle(.plain)
+                }
+            }
+        }
     }
 }
 
