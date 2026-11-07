@@ -15,7 +15,7 @@ final class TaskOverviewSummary: ObservableObject {
         do {
             let output = try await ConfiguredModelService.shared.respond(
                 purpose: .summary,
-                system: "只归纳给出的任务，返回 JSON：{\"message\":\"一句不超过18字的今日安排建议\"}。不重复数量，不增加任务，不输出推理或额外字段。message放在最前。",
+                system: TaskCompanionTone.instructions + "\n这是列表上的极简概览，不添加称呼或开场问候。只归纳给出的任务，返回 JSON：{\"message\":\"一句不超过18字的今日安排建议\"}。不重复数量，不增加任务，不输出推理或额外字段。message放在最前。",
                 prompt: overview.context,
                 onProgress: { [weak self] partial in
                     guard let self, self.replayID == token, self.generating else { return }
@@ -155,21 +155,22 @@ struct TaskTodayView: View {
         guard question.count <= 2000 else { return }
         cancel(); now = Date(); fallback = false; focused = false; followReply = true
         let snapshot = overview, current = token, revision = store.revision
+        let shouldGreet = !messages.contains { !$0.isUser && !$0.text.isEmpty }
         let context = messages.suffix(6).map { ($0.isUser ? "用户：" : "助手：") + String($0.text.prefix(800)) }.joined(separator: "\n")
         if !question.isEmpty { messages.append(TaskMessage(isUser: true, text: question, state: .complete)) }
         if !question.isEmpty { input = "" }
-        let assistant = TaskMessage(isUser: false, text: "", state: .receiving)
+        let assistant = TaskMessage(isUser: false, text: TaskCompanionTone.present("", includeGreeting: shouldGreet), state: .receiving)
         messages.append(assistant); generating = true
         request = Task {
             do {
                 let output = try await ConfiguredModelService.shared.respond(
                     purpose: .summary,
-                    system: "只分析给出的真实任务，不新建、不修改、不虚构任务。不重新计算数量，顶部统计为准。只返回JSON：{\"message\":\"简洁的今日任务分析或对用户的回答，不超过600字\"}。message先输出；保留任务原名，不输出推理。仅参考前30项时说明范围。",
+                    system: TaskCompanionTone.instructions + "\n开场问候由界面添加，message不重复固定称呼。先温柔接住她今天的努力，再给少量可行建议。只分析给出的真实任务，不新建、不修改、不虚构任务。不重新计算数量，顶部统计为准。只返回JSON：{\"message\":\"简洁的今日任务分析或对用户的回答，不超过600字\"}。message先输出；保留任务原名，不输出推理。仅参考前30项时说明范围。",
                     prompt: snapshot.context + "\n最近对话（仅用于理解问题）：\n" + context + "\n用户问题：" + (question.isEmpty ? "分析今天的任务情况，简短说明先做什么。" : question),
                     onProgress: { partial in
                         guard current == token, generating, revision == store.revision,
                               let index = messages.firstIndex(where: { $0.id == assistant.id }) else { return }
-                        messages[index].text = ModelReplyPreview.message(in: partial)
+                        messages[index].text = TaskCompanionTone.present(ModelReplyPreview.message(in: partial), includeGreeting: shouldGreet)
                     }
                 )
                 try Task.checkCancellation()
@@ -177,11 +178,11 @@ struct TaskTodayView: View {
                 guard let message = object["message"] as? String, !message.isEmpty else { throw TaskFailure("总结格式不正确") }
                 guard current == token, revision == store.revision,
                       let index = messages.firstIndex(where: { $0.id == assistant.id }) else { return }
-                messages[index].text = String(message.prefix(2000)); messages[index].state = .complete; generating = false
+                messages[index].text = TaskCompanionTone.present(String(message.prefix(1900)), includeGreeting: shouldGreet); messages[index].state = .complete; generating = false
             } catch {
                 guard !Task.isCancelled, current == token,
                       let index = messages.firstIndex(where: { $0.id == assistant.id }) else { return }
-                messages[index].text = snapshot.fallbackDetail
+                messages[index].text = TaskCompanionTone.present(snapshot.fallbackDetail + (shouldGreet ? "\n\n能做多少就做多少，累了也可以先休息，我陪你慢慢理顺。" : ""), includeGreeting: shouldGreet)
                 messages[index].state = .complete; generating = false; fallback = true
             }
         }

@@ -248,7 +248,7 @@ struct TaskEditorView: View {
                         VStack(alignment: .leading, spacing: 12) {
                             Image(systemName: "bubble.left.and.bubble.right").font(.system(size: 30)).foregroundStyle(AppTheme.pine)
                             Text("从一件想做的事开始").font(.title3).fontWeight(.semibold)
-                            Text("告诉我想做什么，我会帮你整理任务。也可以随时切到属性表单调整。")
+                            Text("不用一下子想清楚，慢慢告诉我想做的事，我陪你一件一件整理。也可以切到属性表单调整。")
                                 .font(.subheadline).foregroundStyle(AppTheme.secondary)
                             Text(registry.selected(.dialogue)?.name ?? "请点击右上角模型图标选择模型")
                                 .font(.caption).foregroundStyle(AppTheme.pine)

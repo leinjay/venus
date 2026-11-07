@@ -88,6 +88,7 @@ struct AccentLabel: View {
     }
 }
 
+#if os(iOS)
 /// Cumulative stream updates stay visible while the remaining characters catch up.
 struct AIReplyText: View {
     let text: String
@@ -115,3 +116,5 @@ struct AIReplyText: View {
             }
     }
 }
+
+#endif

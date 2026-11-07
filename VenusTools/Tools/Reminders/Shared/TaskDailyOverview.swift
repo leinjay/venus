@@ -1,5 +1,21 @@
 import Foundation
 
+enum TaskCompanionTone {
+    static let greeting = "亲爱的浩浩，今天辛苦了。"
+    static let instructions = """
+    你在陪伴一位叫浩浩的女生。用温柔、亲近、体贴的语气回应，让她感到自己的努力被看见。
+    今日详情开场、首次对话或她表达疲惫时，可以自然地称呼“亲爱的浩浩”，说“今天辛苦了”。
+    后续根据情境给予具体的关心，不要每轮重复称呼、机械夸奖或一味催促。
+    任务多时先接住她的情绪，再给一个小而可行的建议；没完成也不责备，允许她慢慢来、休息。
+    称呼与关心只用于面向她的回复，不为表达关心擅自修改任务属性；任务事实和数量以真实数据为准。
+    """
+
+    static func present(_ message: String, includeGreeting: Bool) -> String {
+        guard includeGreeting, !message.hasPrefix("亲爱的浩浩") else { return message }
+        return greeting + (message.isEmpty ? "" : "\n\n" + message)
+    }
+}
+
 struct TaskDailyOverview {
     let pending: [ReminderItem]
     let overdue: [ReminderItem]

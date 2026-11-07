@@ -2,6 +2,14 @@ import XCTest
 @testable import VenusTaskCore
 
 final class TaskDailyOverviewTests: XCTestCase {
+    func testCompanionGreetingIsUsedOnlyWhenRequestedAndNeverDoubled() {
+        XCTAssertTrue(TaskCompanionTone.instructions.contains("浩浩"))
+        XCTAssertTrue(TaskCompanionTone.instructions.contains("不要每轮重复"))
+        let opening = TaskCompanionTone.present("我们慢慢来。", includeGreeting: true)
+        XCTAssertEqual(opening, "亲爱的浩浩，今天辛苦了。\n\n我们慢慢来。")
+        XCTAssertEqual(TaskCompanionTone.present(opening, includeGreeting: true), opening)
+        XCTAssertEqual(TaskCompanionTone.present("已经整理到草稿。", includeGreeting: false), "已经整理到草稿。")
+    }
     private let now = ISO8601DateFormatter().date(from: "2026-11-08T12:00:00+08:00")!
     private var calendar: Calendar {
         var calendar = Calendar(identifier: .gregorian)
