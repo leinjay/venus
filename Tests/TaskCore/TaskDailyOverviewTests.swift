@@ -2,6 +2,19 @@ import XCTest
 @testable import VenusTaskCore
 
 final class TaskDailyOverviewTests: XCTestCase {
+    func testFailedFollowupsKeepTheirQuestionInsteadOfRepeatingFixedOverview() {
+        let overview = TaskDailyOverview(tasks: [], history: [:], now: now, calendar: calendar)
+        let first = TaskOverviewReply.failure(question: "先做什么？", reason: "模型尚未配置", overview: overview)
+        let second = TaskOverviewReply.failure(question: "我有点累了", reason: "模型尚未配置", overview: overview)
+        XCTAssertNotEqual(first, second)
+        XCTAssertTrue(first.contains("先做什么？"))
+        XCTAssertTrue(first.contains("模型尚未配置"))
+        XCTAssertFalse(first.contains(overview.fallbackDetail))
+        XCTAssertEqual(TaskOverviewReply.failure(question: "", reason: "离线", overview: overview), overview.fallbackDetail)
+        XCTAssertTrue(TaskOverviewReply.instructions.contains("优先直接回答用户当前的问题"))
+        XCTAssertTrue(TaskOverviewReply.instructions.contains("浩浩"))
+    }
+
     func testCompanionGreetingIsUsedOnlyWhenRequestedAndNeverDoubled() {
         XCTAssertTrue(TaskCompanionTone.instructions.contains("浩浩"))
         XCTAssertTrue(TaskCompanionTone.instructions.contains("不要每轮重复"))
@@ -66,10 +79,10 @@ final class TaskDailyOverviewTests: XCTestCase {
     }
 
     func testTaskSwipesRequireDeliberateHorizontalMovement() {
-        XCTAssertEqual(TaskDetailSwipe.action(tab: 0, translation: CGSize(width: -100, height: 5)), .exit)
-        XCTAssertEqual(TaskDetailSwipe.action(tab: 0, translation: CGSize(width: 100, height: 5)), .tab(1))
-        XCTAssertEqual(TaskDetailSwipe.action(tab: 1, translation: CGSize(width: -100, height: 5)), .tab(0))
-        XCTAssertEqual(TaskDetailSwipe.action(tab: 1, translation: CGSize(width: 100, height: 5)), .none)
+        XCTAssertEqual(TaskDetailSwipe.action(tab: 0, translation: CGSize(width: -100, height: 5)), .tab(1))
+        XCTAssertEqual(TaskDetailSwipe.action(tab: 0, translation: CGSize(width: 100, height: 5)), .exit)
+        XCTAssertEqual(TaskDetailSwipe.action(tab: 1, translation: CGSize(width: -100, height: 5)), .none)
+        XCTAssertEqual(TaskDetailSwipe.action(tab: 1, translation: CGSize(width: 100, height: 5)), .tab(0))
         XCTAssertEqual(TaskDetailSwipe.action(tab: 0, translation: CGSize(width: -20, height: 5)), .none)
         XCTAssertEqual(TaskDetailSwipe.action(tab: 0, translation: CGSize(width: 90, height: 100)), .none)
     }

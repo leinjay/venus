@@ -16,6 +16,21 @@ enum TaskCompanionTone {
     }
 }
 
+enum TaskOverviewReply {
+    static let instructions = TaskCompanionTone.instructions + """
+
+    开场问候由界面添加，不重复固定称呼。首轮概览简短分析今天的任务情况，温柔看见她的努力，再给一个可行建议。
+    后续对话优先直接回答用户当前的问题，不要不论问什么都重新输出今日摘要；可以回应情绪、解释任务和使用方法。
+    只依据给出的真实任务和对话回答，不新建、不修改、不虚构任务；信息不足就说明并询问。不重新计算数量，顶部统计为准。
+    返回JSON：{"message":"对当前问题的回答，不超过600字"}，message先输出，保留任务原名，不输出推理。仅参考前30项时说明范围。
+    """
+
+    static func failure(question: String, reason: String, overview: TaskDailyOverview) -> String {
+        if question.isEmpty { return overview.fallbackDetail }
+        return "这次 AI 没能正常回答你的这个问题：\n“\(question)”\n\n原因：\(reason)\n\n问题已保留，可以重试，或检查下方的“今日总结模型”。"
+    }
+}
+
 struct TaskDailyOverview {
     let pending: [ReminderItem]
     let overdue: [ReminderItem]

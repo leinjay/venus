@@ -72,13 +72,15 @@ struct TaskEditorView: View {
     @State private var imageToEdit: TaskImage?
     private let isEmbedded: Bool
     private let isActive: Bool
+    private let modelSettingsRequest: Int
     var onSaved: (UUID) -> Void
     var onClose: () -> Void
 
-    init(store: ReminderStore, task: ReminderItem? = nil, restoredVersion: ReminderItem? = nil, isEmbedded: Bool = false, isActive: Bool = true, onSaved: @escaping (UUID) -> Void, onClose: @escaping () -> Void) {
+    init(store: ReminderStore, task: ReminderItem? = nil, restoredVersion: ReminderItem? = nil, isEmbedded: Bool = false, isActive: Bool = true, modelSettingsRequest: Int = 0, onSaved: @escaping (UUID) -> Void, onClose: @escaping () -> Void) {
         self.store = store; self.onSaved = onSaved; self.onClose = onClose
         self.isEmbedded = isEmbedded
         self.isActive = isActive
+        self.modelSettingsRequest = modelSettingsRequest
         var value = TaskDraft(); value.base = task; value.task = restoredVersion ?? task ?? ReminderItem()
         if let restoredVersion, let task { value.task.id = task.id; value.task.lifecycle = task.lifecycle; value.task.deletedAt = nil; value.task.notificationVersion = task.notificationVersion; value.tab = 1; _ = restoredVersion }
         var notice: String?
@@ -132,8 +134,8 @@ struct TaskEditorView: View {
         if isActive {
             if !isEmbedded {
                 ToolbarItem(placement: .topBarLeading) { Button("返回", action: leaveKeepingDraft) }
+                ToolbarItem(placement: .topBarTrailing) { Button(action: showModelOptions) { Image(systemName: "cpu") }.accessibilityLabel("选择模型与管理配置") }
             }
-            ToolbarItem(placement: .topBarTrailing) { Button(action: showModelOptions) { Image(systemName: "cpu") }.accessibilityLabel("选择模型与管理配置") }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     inputFocused = false
@@ -152,6 +154,7 @@ struct TaskEditorView: View {
         navigationEditor
         .toolbar { editorToolbar }
         .onAppear { editorVisible = isActive }
+        .onChange(of: modelSettingsRequest) { _, _ in if isActive { showModelOptions() } }
         .onChange(of: isActive) { _, active in
             editorVisible = active
             if active {

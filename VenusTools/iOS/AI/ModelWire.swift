@@ -155,6 +155,41 @@ struct ModelStreamDecoder {
 
 /// Extract only a top-level JSON message; never show raw attributes, protocol or reasoning.
 enum ModelReplyPreview {
+    /// Summary chat may return ordinary prose even when JSON was requested.
+    /// Keep task-editing proposals on the strict JSON path in TaskAI.
+    static func summaryText(in output: String) -> String {
+        guard let raw = visibleBody(in: output) else { return "" }
+        if raw.hasPrefix("{") { return message(in: raw) }
+        guard !raw.hasPrefix("[") else { return "" }
+        return String(raw.prefix(2000))
+    }
+
+    static func finishedSummary(in output: String) throws -> String {
+        guard let raw = visibleBody(in: output), !raw.isEmpty else { throw ModelFailure("模型没有返回有效回答") }
+        if raw.hasPrefix("{") {
+            guard let object = try? JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any],
+                  let message = object["message"] as? String,
+                  !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ModelFailure("模型回答格式无效，请重试") }
+            return String(message.trimmingCharacters(in: .whitespacesAndNewlines).prefix(2000))
+        }
+        guard !raw.hasPrefix("[") else { throw ModelFailure("模型回答格式无效，请重试") }
+        return String(raw.prefix(2000))
+    }
+
+    private static func visibleBody(in output: String) -> String? {
+        var raw = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        if raw.hasPrefix("<think>") {
+            guard let end = raw.range(of: "</think>") else { return nil }
+            raw = String(raw[end.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if raw.hasPrefix("```") {
+            guard let newline = raw.firstIndex(of: "\n") else { return nil }
+            raw = String(raw[raw.index(after: newline)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if raw.hasSuffix("```") { raw = String(raw.dropLast(3)).trimmingCharacters(in: .whitespacesAndNewlines) }
+        }
+        return raw
+    }
+
     static func message(in output: String, field: String = "message") -> String {
         var raw = output.trimmingCharacters(in: .whitespacesAndNewlines)
         if raw.hasPrefix("<think>") {

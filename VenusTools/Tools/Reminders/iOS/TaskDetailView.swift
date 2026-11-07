@@ -15,6 +15,7 @@ struct TaskDetailView: View {
     @State private var editorSession: UUID?
     @State private var history = false
     @State private var executionCalendar = false
+    @State private var modelSettingsRequest = 0
     @State private var delete = false
     @State private var swipeExclusions: [CGRect] = []
     @Environment(\.dismiss) private var dismiss
@@ -25,12 +26,13 @@ struct TaskDetailView: View {
                     Picker("详情页签", selection: Binding(get: { tab }, set: selectTab)) {
                         Text("任务信息").tag(0); Text("任务编辑").tag(1)
                     }.pickerStyle(.segmented).padding()
-                        .accessibilityHint("左右滑动可以切换，任务信息页左滑返回")
+                        .accessibilityHint("左滑进入任务编辑，右滑回到任务信息或返回列表")
                     ZStack {
                         if tab == 0 { information(task) }
                         if let session = editorSession {
                             TaskEditorView(
                                 store: store, task: task, isEmbedded: true, isActive: tab == 1,
+                                modelSettingsRequest: modelSettingsRequest,
                                 onSaved: { _ in
                                     tab = 0
                                     editorSession = nil
@@ -55,9 +57,15 @@ struct TaskDetailView: View {
                 })
                 .navigationTitle("任务详情").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
+                    if tab == 0 {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button { executionCalendar = true } label: { Image(systemName: "calendar") }
+                                .accessibilityLabel("执行日历")
+                        }
+                    }
                     ToolbarItem(placement: .topBarTrailing) {
                         Menu {
-                            Button("执行日历") { executionCalendar = true }
+                            if tab == 1 { Button("模型设置") { modelSettingsRequest += 1 } }
                             Button("修改记录") { history = true }
                             Button("移到回收站", role: .destructive) { delete = true }
                         } label: { Image(systemName: "ellipsis.circle") }

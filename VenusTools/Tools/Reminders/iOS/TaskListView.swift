@@ -181,7 +181,8 @@ struct RemindersView: View {
             Image(systemName: "sparkles").font(.title3).foregroundStyle(AppTheme.pine)
                 .symbolEffect(.pulse, isActive: overviewSummary.generating)
             VStack(alignment: .leading, spacing: 4) {
-                Text("今日概览").font(.caption2.weight(.semibold)).foregroundStyle(AppTheme.secondary)
+                Text("今日概览 · \(overviewSummary.source)").font(.caption2.weight(.semibold)).foregroundStyle(AppTheme.secondary)
+                    .accessibilityHint(overviewSummary.failureReason ?? "")
                 AIReplyText(text: overviewSummary.text, generating: overviewSummary.generating, replayID: overviewSummary.replayID.uuidString)
                     .font(.system(size: 13)).lineLimit(2).foregroundStyle(AppTheme.ink)
                     .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)

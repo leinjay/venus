@@ -5,11 +5,15 @@ final class TaskOverviewSummary: ObservableObject {
     @Published var text = ""
     @Published var generating = false
     @Published var replayID = UUID()
+    @Published var source = "准备生成"
+    @Published var failureReason: String?
 
     func refresh(_ overview: TaskDailyOverview) async {
         let token = UUID()
         replayID = token
         generating = true
+        source = "生成中"
+        failureReason = nil
         text = overview.compactCounts
         defer { if replayID == token { generating = false } }
         do {
@@ -19,18 +23,20 @@ final class TaskOverviewSummary: ObservableObject {
                 prompt: overview.context,
                 onProgress: { [weak self] partial in
                     guard let self, self.replayID == token, self.generating else { return }
-                    let message = ModelReplyPreview.message(in: partial)
+                    let message = ModelReplyPreview.summaryText(in: partial)
                     self.text = overview.compactCounts + (message.isEmpty ? "" : "\n" + String(message.prefix(18)))
                 }
             )
             try Task.checkCancellation()
             guard replayID == token else { return }
-            let object = try TaskAI.parseObject(output)
-            guard let message = object["message"] as? String, !message.isEmpty, message.count <= 30 else { throw TaskFailure("摘要格式无效") }
+            let message = try ModelReplyPreview.finishedSummary(in: output)
             text = overview.compactCounts + "\n" + String(message.prefix(18))
+            source = "AI"
         } catch {
             guard !Task.isCancelled, replayID == token else { return }
             text = overview.compactCounts + "\n" + overview.fallbackAdvice
+            source = "固定摘要"
+            failureReason = error.localizedDescription
         }
     }
 
@@ -39,6 +45,7 @@ final class TaskOverviewSummary: ObservableObject {
 
 struct TaskTodayView: View {
     @ObservedObject var store: ReminderStore
+    @ObservedObject private var registry = ModelRegistry.shared
     @Environment(\.dismiss) private var dismiss
     @State private var now = Date()
     @State private var messages: [TaskMessage] = []
@@ -47,6 +54,10 @@ struct TaskTodayView: View {
     @State private var request: Task<Void, Never>?
     @State private var token = UUID()
     @State private var fallback = false
+    @State private var source = "正在连接 AI"
+    @State private var failureReason: String?
+    @State private var failedQuestion: String?
+    @State private var modelExpanded = false
     @State private var followReply = true
     @FocusState private var focused: Bool
     var onManageModels: (() -> Void)? = nil
@@ -63,6 +74,7 @@ struct TaskTodayView: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 16) {
                             Text(overview.headline).font(.subheadline.weight(.medium)).foregroundStyle(AppTheme.pine)
+                            Text(source).font(.caption).foregroundStyle(AppTheme.secondary)
                             ForEach(messages) { message in
                                 HStack(alignment: .top, spacing: 8) {
                                     if message.isUser { Spacer(minLength: 32) }
@@ -73,6 +85,7 @@ struct TaskTodayView: View {
                                             VStack(alignment: .leading, spacing: 4) {
                                                 AIReplyText(text: message.text, generating: message.state == .receiving)
                                                 if message.state == .stopped { Text("已停止").font(.caption).foregroundStyle(AppTheme.secondary) }
+                                                if message.state == .failed { Text("未获得 AI 回答").font(.caption).foregroundStyle(AppTheme.terracotta) }
                                             }
                                         }
                                     }
@@ -82,6 +95,16 @@ struct TaskTodayView: View {
                                 }.id(message.id)
                             }
                             if fallback { Text("已使用本机固定摘要，任务统计来自真实记录。").font(.caption2).foregroundStyle(AppTheme.secondary) }
+                            if let failureReason {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    Text(failureReason).font(.caption).foregroundStyle(AppTheme.secondary).textSelection(.enabled)
+                                    HStack {
+                                        Button("重试") { generate(question: failedQuestion ?? "", appendUserMessage: false) }
+                                        Spacer()
+                                        Button("检查模型") { withAnimation { modelExpanded = true; proxy.scrollTo("summary-model", anchor: .center) } }
+                                    }.font(.caption.weight(.medium)).disabled(generating)
+                                }.surfaceCard(padding: 14)
+                            }
                             DisclosureGroup("查看完整任务清单") {
                                 VStack(alignment: .leading, spacing: 14) {
                                     taskGroup("今日待办", tasks: overview.pending)
@@ -90,8 +113,13 @@ struct TaskTodayView: View {
                                     taskGroup("未安排", tasks: unplanned)
                                 }.padding(.top, 12)
                             }.font(.subheadline).surfaceCard(padding: 14)
-                            DisclosureGroup("总结使用的模型") { ModelBindingPanel(purpose: .summary, onManage: onManageModels) }
+                            DisclosureGroup("今日总结模型", isExpanded: $modelExpanded) {
+                                Text("今日概览和这里的问答使用此模型，与任务编辑的对话模型分别设置。更改后点击重试或刷新。")
+                                    .font(.caption).foregroundStyle(AppTheme.secondary).padding(.vertical, 8)
+                                ModelBindingPanel(purpose: .summary, onManage: onManageModels)
+                            }
                                 .font(.subheadline).surfaceCard(padding: 14)
+                                .id("summary-model")
                             Color.clear.frame(height: 1).id("summary-bottom")
                         }.padding(16)
                     }
@@ -146,44 +174,54 @@ struct TaskTodayView: View {
     }
 
     private func cancel() {
+        if generating { source = "回复已停止" }
         token = UUID(); request?.cancel(); request = nil; generating = false
         for index in messages.indices where messages[index].state == .receiving { messages[index].state = .stopped }
     }
 
-    private func generate(question: String = "") {
+    private func generate(question: String = "", appendUserMessage: Bool = true) {
         let question = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard question.count <= 2000 else { return }
         cancel(); now = Date(); fallback = false; focused = false; followReply = true
+        failureReason = nil; failedQuestion = nil; source = "正在连接 AI"
         let snapshot = overview, current = token, revision = store.revision
         let shouldGreet = !messages.contains { !$0.isUser && !$0.text.isEmpty }
-        let context = messages.suffix(6).map { ($0.isUser ? "用户：" : "助手：") + String($0.text.prefix(800)) }.joined(separator: "\n")
-        if !question.isEmpty { messages.append(TaskMessage(isUser: true, text: question, state: .complete)) }
-        if !question.isEmpty { input = "" }
+        let context = messages.filter { $0.state == .complete }.suffix(6).map { ($0.isUser ? "用户：" : "助手：") + String($0.text.prefix(800)) }.joined(separator: "\n")
+        if !question.isEmpty && appendUserMessage { messages.append(TaskMessage(isUser: true, text: question, state: .complete)) }
+        if !question.isEmpty && input.trimmingCharacters(in: .whitespacesAndNewlines) == question { input = "" }
         let assistant = TaskMessage(isUser: false, text: TaskCompanionTone.present("", includeGreeting: shouldGreet), state: .receiving)
         messages.append(assistant); generating = true
         request = Task {
             do {
                 let output = try await ConfiguredModelService.shared.respond(
                     purpose: .summary,
-                    system: TaskCompanionTone.instructions + "\n开场问候由界面添加，message不重复固定称呼。先温柔接住她今天的努力，再给少量可行建议。只分析给出的真实任务，不新建、不修改、不虚构任务。不重新计算数量，顶部统计为准。只返回JSON：{\"message\":\"简洁的今日任务分析或对用户的回答，不超过600字\"}。message先输出；保留任务原名，不输出推理。仅参考前30项时说明范围。",
+                    system: TaskOverviewReply.instructions,
                     prompt: snapshot.context + "\n最近对话（仅用于理解问题）：\n" + context + "\n用户问题：" + (question.isEmpty ? "分析今天的任务情况，简短说明先做什么。" : question),
                     onProgress: { partial in
                         guard current == token, generating, revision == store.revision,
                               let index = messages.firstIndex(where: { $0.id == assistant.id }) else { return }
-                        messages[index].text = TaskCompanionTone.present(ModelReplyPreview.message(in: partial), includeGreeting: shouldGreet)
+                        messages[index].text = TaskCompanionTone.present(ModelReplyPreview.summaryText(in: partial), includeGreeting: shouldGreet)
                     }
                 )
                 try Task.checkCancellation()
-                let object = try TaskAI.parseObject(output)
-                guard let message = object["message"] as? String, !message.isEmpty else { throw TaskFailure("总结格式不正确") }
+                let message = try ModelReplyPreview.finishedSummary(in: output)
                 guard current == token, revision == store.revision,
                       let index = messages.firstIndex(where: { $0.id == assistant.id }) else { return }
                 messages[index].text = TaskCompanionTone.present(String(message.prefix(1900)), includeGreeting: shouldGreet); messages[index].state = .complete; generating = false
+                source = "AI · \(registry.selected(.summary)?.name ?? "今日总结模型")"
             } catch {
-                guard !Task.isCancelled, current == token,
+                guard !Task.isCancelled, current == token, revision == store.revision,
                       let index = messages.firstIndex(where: { $0.id == assistant.id }) else { return }
-                messages[index].text = TaskCompanionTone.present(snapshot.fallbackDetail + (shouldGreet ? "\n\n能做多少就做多少，累了也可以先休息，我陪你慢慢理顺。" : ""), includeGreeting: shouldGreet)
-                messages[index].state = .complete; generating = false; fallback = true
+                failureReason = error.localizedDescription
+                let localReply = TaskOverviewReply.failure(question: question, reason: error.localizedDescription, overview: snapshot)
+                messages[index].text = TaskCompanionTone.present(localReply + (question.isEmpty && shouldGreet ? "\n\n能做多少就做多少，累了也可以先休息，我陪你慢慢理顺。" : ""), includeGreeting: shouldGreet)
+                messages[index].state = question.isEmpty ? .complete : .failed
+                generating = false; fallback = question.isEmpty
+                source = question.isEmpty ? "固定摘要 · AI 暂不可用" : "AI 调用失败"
+                if !question.isEmpty {
+                    failedQuestion = question
+                    if input.isEmpty { input = question }
+                }
             }
         }
     }

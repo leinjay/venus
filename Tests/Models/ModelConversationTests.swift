@@ -2,6 +2,22 @@ import XCTest
 @testable import VenusModelCore
 
 final class ModelConversationTests: XCTestCase {
+    func testSummaryAcceptsProseAndJSONWithoutShowingReasoningOrAttributes() throws {
+        XCTAssertEqual(ModelReplyPreview.summaryText(in: "先休息一会儿，"), "先休息一会儿，")
+        XCTAssertEqual(try ModelReplyPreview.finishedSummary(in: "  先休息一会儿，再处理出门的事。  "), "先休息一会儿，再处理出门的事。")
+        XCTAssertEqual(ModelReplyPreview.summaryText(in: #"{"message":"先做出门"#), "先做出门")
+        XCTAssertEqual(try ModelReplyPreview.finishedSummary(in: "```json\n{\"message\":\"今天有一项安排\"}\n```"), "今天有一项安排")
+        XCTAssertEqual(ModelReplyPreview.summaryText(in: "<think>不要显示推理"), "")
+        XCTAssertThrowsError(try ModelReplyPreview.finishedSummary(in: "<think>尚未结束"))
+        XCTAssertEqual(try ModelReplyPreview.finishedSummary(in: "<think>隐藏</think>我们慢慢来。"), "我们慢慢来。")
+        XCTAssertEqual(ModelReplyPreview.summaryText(in: #"{"changes":{"title":"内部"}}"#), "")
+        for invalid in ["", "{\"message\":\"截断", "{\"other\":\"没有正文\"}", "{\"message\":\" \"}", "[\"无效列表\"]"] {
+            XCTAssertThrowsError(try ModelReplyPreview.finishedSummary(in: invalid))
+        }
+        // Permissive summary parsing must not loosen task-edit proposal previews.
+        XCTAssertEqual(ModelReplyPreview.message(in: "先休息一会儿"), "")
+    }
+
     func testSearchExplanationCanBePreviewedWithoutDisplayingOtherFields() {
         XCTAssertEqual(ModelReplyPreview.message(in: #"{"explanation":"正在查找今"#, field: "explanation"), "正在查找今")
         XCTAssertEqual(ModelReplyPreview.message(in: #"{"keywords":"隐藏词","explanation":"按执行时间筛选","status":3}"#, field: "explanation"), "按执行时间筛选")

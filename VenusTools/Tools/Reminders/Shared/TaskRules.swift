@@ -5,8 +5,8 @@ enum TaskDetailSwipe {
     enum Action: Equatable { case none, exit, tab(Int) }
     static func action(tab: Int, translation: CGSize) -> Action {
         guard abs(translation.width) >= 80, abs(translation.width) > abs(translation.height) * 1.5 else { return .none }
-        if translation.width < 0 { return tab == 0 ? .exit : .tab(0) }
-        return tab == 0 ? .tab(1) : .none
+        if translation.width < 0 { return tab == 0 ? .tab(1) : .none }
+        return tab == 0 ? .exit : .tab(0)
     }
 }
 
