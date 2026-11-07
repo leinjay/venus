@@ -2,8 +2,8 @@ import SwiftUI
 import UIKit
 
 enum TaskRoute: Hashable {
-    case detail(UUID), edit(UUID), new, restore(UUID, UUID)
-    var isEditing: Bool { switch self { case .detail: return false; default: return true } }
+    case detail(UUID), edit(UUID), new, restore(UUID, UUID), models
+    var isEditing: Bool { switch self { case .detail, .models: return false; default: return true } }
 }
 
 struct RemindersView: View {
@@ -86,11 +86,6 @@ struct RemindersView: View {
                         if searching { ProgressView() }
                         Button("智能查找") { intelligentSearch() }.font(.subheadline).disabled(searching || query.isEmpty)
                     }
-                    DisclosureGroup("任务使用的模型") {
-                        ModelBindingPanel(purpose: .dialogue)
-                        ModelBindingPanel(purpose: .summary)
-                        ModelBindingPanel(purpose: .search)
-                    }.font(.subheadline).surfaceCard(padding: 14)
                     if filtered.isEmpty {
                         ContentUnavailableView(store.reminders.isEmpty ? "从一件小事开始" : "没有匹配任务", systemImage: "tray", description: Text(store.reminders.isEmpty ? "点击右上角添加任务，用对话或表单记录。" : "试试其他关键词或清除过滤条件。"))
                     } else {
@@ -117,6 +112,9 @@ struct RemindersView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { Button { path.append(.new) } label: { Image(systemName: "plus") }.accessibilityLabel("新建任务") }
                 ToolbarItem(placement: .topBarTrailing) { Menu {
+                    NavigationLink(value: TaskRoute.models) {
+                        Label("任务使用的模型", systemImage: "cpu")
+                    }
                     Button("回收站（\(store.deleted.count)）") { recycle = true }
                     Button("重试通知与同步") { store.retryDelivery() }
                     Toggle("通知隐藏标题与内容", isOn: $hideTitle)
@@ -124,6 +122,13 @@ struct RemindersView: View {
             }
             .navigationDestination(for: TaskRoute.self) { route in
                 switch route {
+                case .models:
+                    List {
+                        Section { ModelBindingPanel(purpose: .dialogue) }
+                        Section { ModelBindingPanel(purpose: .summary) }
+                        Section { ModelBindingPanel(purpose: .search) }
+                    }.navigationTitle("任务使用的模型")
+                        .navigationBarTitleDisplayMode(.inline)
                 case .detail(let id): TaskDetailView(store: store, taskID: id, onEdit: { path.append(.edit(id)) }, onOpen: { path.append(.detail($0)) }, onRestore: { path.append(.restore(id, $0)) })
                 case .new: TaskEditorView(store: store, onSaved: { id in if !path.isEmpty { path.removeLast() }; path.append(.detail(id)) }, onClose: { if !path.isEmpty { path.removeLast() } })
                 case .edit(let id):
