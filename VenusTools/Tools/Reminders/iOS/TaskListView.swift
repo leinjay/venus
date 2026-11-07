@@ -268,22 +268,39 @@ struct TaskCard: View {
     private var actionWidth: CGFloat { compact ? 56 : 76 }
     private var revealWidth: CGFloat { actionWidth * 2 }
     private var toggleTitle: String { task.isDone ? "标为未完成" : "标为已完成" }
-    private var reminderDate: Date? { task.schedule.trigger() }
-
     private var isOverdue: Bool { TaskRules.isOverdue(task, now: now) }
 
-    private var reminderTime: String {
-        guard let reminderDate else { return "未安排时间" }
+    private var executionDate: Date? {
+        if task.schedule.recurrence == .once { return task.completedAt ?? task.schedule.trigger() }
+        guard !task.isDone else { return nil }
+        return task.schedule.nextOccurrence(after: now)
+    }
+
+    private func formattedDate(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
         formatter.dateFormat = "yyyy年M月d日 HH:mm"
-        return formatter.string(from: reminderDate)
+        return formatter.string(from: date)
+    }
+
+    private var executionTimeInfo: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(task.schedule.recurrence == .once ? "上次执行时间" : "下次执行时间")
+            Text(executionDate.map(formattedDate) ?? (task.isDone ? "已完成" : "未安排时间"))
+                .lineLimit(1).minimumScaleFactor(0.75)
+        }.accessibilityElement(children: .combine)
+    }
+
+    private var creationTimeInfo: some View {
+        VStack(alignment: .trailing, spacing: 3) {
+            Text("创建时间")
+            Text(formattedDate(task.addedAt)).lineLimit(1).minimumScaleFactor(0.75)
+        }.accessibilityElement(children: .combine)
     }
 
     @ViewBuilder private var badges: some View {
         AccentLabel(title: task.isDone ? "已完成" : "未完成", color: task.isDone ? AppTheme.pine : AppTheme.amber)
         if isOverdue { AccentLabel(title: "逾期", color: .red) }
-        if task.schedule.recurrence != .once { AccentLabel(title: task.schedule.recurrenceLabel, color: AppTheme.pine) }
         if task.priority != .unspecified {
             AccentLabel(title: task.priority.title, color: task.priority == .high ? AppTheme.terracotta : AppTheme.pine)
         }
@@ -304,30 +321,43 @@ struct TaskCard: View {
 
     private var cardContent: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top, spacing: 8) {
-                    title.fixedSize(horizontal: true, vertical: false)
-                    Spacer(minLength: 0)
-                    HStack(spacing: 4) { badges }.fixedSize(horizontal: true, vertical: false)
-                }
+            if compact {
                 VStack(alignment: .trailing, spacing: 6) {
+                    AccentLabel(title: task.schedule.recurrenceLabel, color: AppTheme.pine)
                     title.frame(maxWidth: .infinity, alignment: .leading)
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 4) { badges }.fixedSize(horizontal: true, vertical: false)
-                        VStack(alignment: .trailing, spacing: 4) { badges }
-                    }
+                }
+            } else {
+                HStack(alignment: .top, spacing: 8) {
+                    title.frame(maxWidth: .infinity, alignment: .leading)
+                    AccentLabel(title: task.schedule.recurrenceLabel, color: AppTheme.pine)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
             }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 4) { badges }.fixedSize(horizontal: true, vertical: false)
+                VStack(alignment: .trailing, spacing: 4) { badges }
+            }.frame(maxWidth: .infinity, alignment: .trailing)
             if !task.summary.isEmpty {
                 Text(task.summary).font(.caption).foregroundStyle(AppTheme.secondary).lineLimit(2)
             }
-            HStack {
-                Text(reminderTime).foregroundStyle(AppTheme.secondary).multilineTextAlignment(.leading)
-                Spacer(minLength: 0)
-                if blocked > 0 {
-                    Label("\(blocked)", systemImage: "link").foregroundStyle(AppTheme.amber)
+            Group {
+                if compact {
+                    VStack(alignment: .leading, spacing: 8) {
+                        executionTimeInfo
+                        creationTimeInfo.frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                } else {
+                    HStack(alignment: .bottom, spacing: 8) {
+                        executionTimeInfo
+                        Spacer(minLength: 0)
+                        creationTimeInfo
+                    }
                 }
-            }.font(.caption)
+            }.font(.caption2).foregroundStyle(AppTheme.secondary)
+            if blocked > 0 {
+                Label("\(blocked)", systemImage: "link").font(.caption).foregroundStyle(AppTheme.amber)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .surfaceCard(padding: compact ? 12 : 16)
