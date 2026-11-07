@@ -2,6 +2,35 @@ import XCTest
 @testable import VenusTaskCore
 
 final class TaskRulesTests: XCTestCase {
+    func testOverdueUsesTheExactTimeForTimedTasksAndExcludesInactiveTasks() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        var task = ReminderItem(title: "提醒", dueAt: now.addingTimeInterval(-1))
+        XCTAssertTrue(TaskRules.isOverdue(task, now: now))
+        task.isDone = true
+        XCTAssertFalse(TaskRules.isOverdue(task, now: now))
+        task.isDone = false
+        task.deletedAt = now
+        XCTAssertFalse(TaskRules.isOverdue(task, now: now))
+        task.deletedAt = nil
+        task.schedule.instant = now
+        XCTAssertFalse(TaskRules.isOverdue(task, now: now))
+        task.schedule.instant = now.addingTimeInterval(60)
+        XCTAssertFalse(TaskRules.isOverdue(task, now: now))
+        task.schedule.mode = .unplanned
+        XCTAssertFalse(TaskRules.isOverdue(task, now: now))
+    }
+
+    func testDateOnlyTaskBecomesOverdueOnTheFollowingLocalDay() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Asia/Shanghai"))
+        let noon = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 11, day: 7, hour: 12)))
+        let nextDay = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 11, day: 8)))
+        var task = ReminderItem()
+        task.schedule = TaskSchedule(mode: .day, day: "2026-11-07")
+        XCTAssertFalse(TaskRules.isOverdue(task, now: noon, calendar: calendar))
+        XCTAssertTrue(TaskRules.isOverdue(task, now: nextDay, calendar: calendar))
+    }
+
     func testNotificationShowsTitleAndSummaryWithBodyFallback() {
         var task = ReminderItem(); task.title = "  交报告  "; task.summary = "周五前提交"; task.body = "完整报告内容"
         let text = TaskRules.notificationText(task, hideDetails: false)

@@ -16,6 +16,7 @@ struct RemindersView: View {
     @State private var query = ""
     @State private var keywords: String?
     @State private var explanation = ""
+    @State private var now = Date()
     @State private var status = 0
     @State private var priority = -1
     @State private var tagQuery = ""
@@ -38,7 +39,8 @@ struct RemindersView: View {
     private var filtered: [ReminderItem] {
         let tags = tagQuery.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }.filter { !$0.isEmpty }
         let result = store.reminders.filter { task in
-            guard status == 2 || task.isDone == (status == 1), priority < 0 || task.priority.rawValue == priority,
+            let matchesStatus = status == 3 ? TaskRules.isOverdue(task, now: now) : status == 2 || task.isDone == (status == 1)
+            guard matchesStatus, priority < 0 || task.priority.rawValue == priority,
                   TaskRules.matches(task, query: keywords ?? query) else { return false }
             if let fromDate, task.schedule.trigger().map({ $0 >= Calendar.current.startOfDay(for: fromDate) }) != true { return false }
             if let toDate {
@@ -76,7 +78,7 @@ struct RemindersView: View {
                         if !query.isEmpty { Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }.accessibilityLabel("清除搜索") }
                     }.padding(12).background(AppTheme.line.opacity(0.65), in: Capsule())
                     HStack {
-                        Picker("完成状态", selection: $status) { Text("未完成").tag(0); Text("已完成").tag(1); Text("全部").tag(2) }.pickerStyle(.segmented)
+                        Picker("完成状态", selection: $status) { Text("未完成").tag(0); Text("已完成").tag(1); Text("全部").tag(2); Text("逾期").tag(3) }.pickerStyle(.segmented)
                         Button { grid.toggle() } label: { Image(systemName: grid ? "list.bullet" : "square.grid.2x2") }.accessibilityLabel(grid ? "切换列表" : "切换卡片")
                     }
                     filterBar
@@ -89,17 +91,15 @@ struct RemindersView: View {
                     if filtered.isEmpty {
                         ContentUnavailableView(store.reminders.isEmpty ? "从一件小事开始" : "没有匹配任务", systemImage: "tray", description: Text(store.reminders.isEmpty ? "点击右上角添加任务，用对话或表单记录。" : "试试其他关键词或清除过滤条件。"))
                     } else {
-                        TimelineView(.periodic(from: .now, by: 60)) { timeline in
-                            LazyVGrid(columns: grid ? [GridItem(.flexible()), GridItem(.flexible())] : [GridItem(.flexible())], spacing: 12) {
-                                ForEach(filtered) { task in
-                                    TaskCard(
-                                        task: task, blocked: store.unfinishedPrerequisites(task), now: timeline.date, compact: grid,
-                                        revealedTaskID: $revealedTaskID,
-                                        onOpen: { path.append(.detail(task.id)) },
-                                        onToggle: { store.toggle(task) },
-                                        onDelete: { taskToDelete = task }
-                                    )
-                                }
+                        LazyVGrid(columns: grid ? [GridItem(.flexible()), GridItem(.flexible())] : [GridItem(.flexible())], spacing: 12) {
+                            ForEach(filtered) { task in
+                                TaskCard(
+                                    task: task, blocked: store.unfinishedPrerequisites(task), now: now, compact: grid,
+                                    revealedTaskID: $revealedTaskID,
+                                    onOpen: { path.append(.detail(task.id)) },
+                                    onToggle: { store.toggle(task) },
+                                    onDelete: { taskToDelete = task }
+                                )
                             }
                         }
                     }
@@ -151,7 +151,9 @@ struct RemindersView: View {
         }
         .onChange(of: query) { _, _ in searchTask?.cancel(); searchID = UUID(); searching = false; keywords = nil; explanation = "" }
         .onChange(of: hideTitle) { _, _ in store.refreshNotifications() }
-        .onChange(of: scenePhase) { _, phase in if phase == .active { store.refreshNotifications() } }
+        .onAppear { now = Date() }
+        .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { now = $0 }
+        .onChange(of: scenePhase) { _, phase in if phase == .active { now = Date(); store.refreshNotifications() } }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in store.refreshNotifications() }
         .onChange(of: store.notificationTaskID) { _, id in if let id { if store.item(id) != nil { path = [.detail(id)] } else { searchError = "该任务已删除或不存在" }; store.notificationTaskID = nil } }
         .confirmationDialog("移到回收站？", isPresented: Binding(
@@ -268,11 +270,7 @@ struct TaskCard: View {
     private var toggleTitle: String { task.isDone ? "标为未完成" : "标为已完成" }
     private var reminderDate: Date? { task.schedule.trigger() }
 
-    private var isOverdue: Bool {
-        guard !task.isDone, let reminderDate else { return false }
-        let cutoff = task.schedule.mode == .day ? Calendar.current.startOfDay(for: now) : now
-        return reminderDate < cutoff
-    }
+    private var isOverdue: Bool { TaskRules.isOverdue(task, now: now) }
 
     private var reminderTime: String {
         guard let reminderDate else { return "未安排时间" }

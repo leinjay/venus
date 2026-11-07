@@ -37,6 +37,12 @@ struct TaskFailure: LocalizedError {
 }
 
 enum TaskRules {
+    static func isOverdue(_ task: ReminderItem, now: Date, calendar: Calendar = .current) -> Bool {
+        guard !task.isDone, task.deletedAt == nil, let date = task.schedule.trigger(calendar: calendar) else { return false }
+        let cutoff = task.schedule.mode == .day ? calendar.startOfDay(for: now) : now
+        return date < cutoff
+    }
+
     static func notificationText(_ task: ReminderItem, hideDetails: Bool) -> (title: String, body: String) {
         guard !hideDetails else { return ("你有一项任务待处理", "打开 Venus 查看任务详情") }
         let title = task.title.trimmingCharacters(in: .whitespacesAndNewlines)
