@@ -22,6 +22,7 @@ struct RemindersView: View {
     @State private var tagsMatchAny = false
     @State private var fromDate: Date?
     @State private var toDate: Date?
+    @State private var showFilters = false
     @State private var recycle = false
     @State private var today = false
     @State private var manageAfterToday = false
@@ -67,11 +68,6 @@ struct RemindersView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     BrandHeader(eyebrow: "MAKE ROOM FOR WHAT MATTERS", title: "任务", subtitle: "琐事、计划和想做的事，都有一个位置。")
-                    HStack {
-                        Label("\(store.reminders.filter { !$0.isDone }.count) 项待办", systemImage: "circle.dotted")
-                        Spacer()
-                        Text("今天 \(TaskRules.today(store.reminders).count) 项").foregroundStyle(AppTheme.pine)
-                    }.font(.subheadline).surfaceCard(padding: 14)
                     if !explanation.isEmpty { HStack(alignment: .top) { Image(systemName: "sparkles"); Text(explanation); Spacer(); Button("清除") { resetFilters() } }.font(.caption).surfaceCard(padding: 12) }
                     HStack {
                         Image(systemName: "magnifyingglass").foregroundStyle(AppTheme.secondary)
@@ -83,28 +79,7 @@ struct RemindersView: View {
                         Picker("完成状态", selection: $status) { Text("未完成").tag(0); Text("已完成").tag(1); Text("全部").tag(2) }.pickerStyle(.segmented)
                         Button { grid.toggle() } label: { Image(systemName: grid ? "list.bullet" : "square.grid.2x2") }.accessibilityLabel(grid ? "切换列表" : "切换卡片")
                     }
-                    HStack(spacing: 8) {
-                        Picker("排序方式", selection: Binding(get: { sort }, set: { sort = $0; sortExplicit = true })) {
-                            Text("执行时间：早到晚").tag(0); Text("添加时间：新到旧").tag(1); Text("重要程度：高到低").tag(2)
-                        }.labelsHidden()
-                        Picker("重要程度", selection: $priority) {
-                            Text("全部重要程度").tag(-1)
-                            ForEach(TaskPriority.allCases) { Text($0.title).tag($0.rawValue) }
-                        }.labelsHidden()
-                        Spacer(minLength: 0)
-                        Button("重置") { resetFilters(); sort = 0; sortExplicit = false }
-                    }.font(.caption).lineLimit(1).minimumScaleFactor(0.7)
-                    DisclosureGroup("更多筛选") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            TextField("标签，例如 领域:生活,地点:家", text: $tagQuery).textFieldStyle(.roundedBorder)
-                            Toggle("多个标签匹配任意一个", isOn: $tagsMatchAny)
-                            Toggle("限定开始日期", isOn: Binding(get: { fromDate != nil }, set: { fromDate = $0 ? Date() : nil }))
-                            if fromDate != nil { DatePicker("从", selection: Binding(get: { fromDate ?? Date() }, set: { fromDate = $0 }), displayedComponents: .date) }
-                            Toggle("限定结束日期", isOn: Binding(get: { toDate != nil }, set: { toDate = $0 ? Date() : nil }))
-                            if toDate != nil { DatePicker("到", selection: Binding(get: { toDate ?? Date() }, set: { toDate = $0 }), displayedComponents: .date) }
-                            if sortExplicit { Button("查找时优先相关性") { sortExplicit = false } }
-                        }.font(.subheadline).padding(.top, 8)
-                    }.font(.subheadline).surfaceCard(padding: 12)
+                    filterBar
                     HStack {
                         Text("\(filtered.count) 项结果").font(.caption).foregroundStyle(.secondary)
                         Spacer()
@@ -162,6 +137,7 @@ struct RemindersView: View {
             }
         }
         .overlay { if path.last?.isEditing != true { TaskAssistantButton { today = true } } }
+        .sheet(isPresented: $showFilters) { filterSheet }
         .sheet(isPresented: $recycle) { TaskRecycleView(store: store) }
         .sheet(isPresented: $today, onDismiss: {
             if manageAfterToday { manageAfterToday = false; navigation.openModels(onReturn: { today = true }) }
@@ -182,6 +158,67 @@ struct RemindersView: View {
             Text("30 天内可恢复。\(store.reminders.filter { $0.prerequisiteIDs.contains(task.id) }.count) 项后续任务会解除此依赖。")
         }
         .alert("请检查", isPresented: Binding(get: { store.errorMessage != nil || searchError != nil }, set: { if !$0 { store.errorMessage = nil; searchError = nil } })) { Button("知道了") { store.errorMessage = nil; searchError = nil } } message: { Text(searchError ?? store.errorMessage ?? "") }
+    }
+
+    private func filterLabel(_ title: String) -> some View {
+        HStack(spacing: 4) {
+            Text(title).lineLimit(1).minimumScaleFactor(0.8)
+            Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+        }.frame(maxWidth: .infinity, minHeight: 44)
+    }
+
+    private var filterBar: some View {
+        HStack(spacing: 12) {
+            Menu {
+                Picker("排序方式", selection: Binding(get: { sort }, set: { sort = $0; sortExplicit = true })) {
+                    Text("执行时间：早到晚").tag(0)
+                    Text("添加时间：新到旧").tag(1)
+                    Text("重要程度：高到低").tag(2)
+                }
+                if sortExplicit { Button("查找时优先相关性") { sortExplicit = false } }
+            } label: {
+                filterLabel(sort == 1 ? "添加时间" : sort == 2 ? "重要排序" : "执行时间")
+            }.accessibilityLabel("排序方式")
+            Menu {
+                Picker("重要程度", selection: $priority) {
+                    Text("全部重要程度").tag(-1)
+                    ForEach(TaskPriority.allCases) { Text($0.title).tag($0.rawValue) }
+                }
+            } label: {
+                filterLabel(TaskPriority(rawValue: priority).map { "\($0.title)优先级" } ?? "重要程度")
+            }.accessibilityLabel("重要程度筛选")
+            Button { showFilters = true } label: { filterLabel("筛选") }
+                .foregroundStyle(!tagQuery.isEmpty || fromDate != nil || toDate != nil ? AppTheme.pine : AppTheme.ink)
+                .accessibilityLabel("更多筛选")
+            Button("重置") {
+                resetFilters()
+                sort = 0
+                sortExplicit = false
+            }.foregroundStyle(AppTheme.pine).frame(minWidth: 44, minHeight: 44)
+        }
+        .font(.subheadline.weight(.medium))
+        .foregroundStyle(AppTheme.ink)
+        .buttonStyle(.plain)
+    }
+
+    private var filterSheet: some View {
+        NavigationStack {
+            Form {
+                Section("标签") {
+                    TextField("例如 领域:生活,地点:家", text: $tagQuery)
+                    Toggle("多个标签匹配任意一个", isOn: $tagsMatchAny)
+                }
+                Section("执行日期") {
+                    Toggle("限定开始日期", isOn: Binding(get: { fromDate != nil }, set: { fromDate = $0 ? Date() : nil }))
+                    if fromDate != nil { DatePicker("从", selection: Binding(get: { fromDate ?? Date() }, set: { fromDate = $0 }), displayedComponents: .date) }
+                    Toggle("限定结束日期", isOn: Binding(get: { toDate != nil }, set: { toDate = $0 ? Date() : nil }))
+                    if toDate != nil { DatePicker("到", selection: Binding(get: { toDate ?? Date() }, set: { toDate = $0 }), displayedComponents: .date) }
+                }
+            }
+            .navigationTitle("筛选")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showFilters = false } } }
+        }
     }
 
     private func resetFilters() { query = ""; keywords = nil; explanation = ""; status = 0; priority = -1; tagQuery = ""; fromDate = nil; toDate = nil; tagsMatchAny = false }
