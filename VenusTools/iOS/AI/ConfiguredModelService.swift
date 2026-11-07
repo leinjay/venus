@@ -42,13 +42,13 @@ final class ConfiguredModelService {
         guard registry.callEpoch == epoch, try registry.resolve(.transcription).fingerprint == config.fingerprint else { throw CancellationError() }
         return output
     }
-    func test(config: ModelConfiguration, credential: ModelCredential?) async throws -> String {
+    func test(config: ModelConfiguration, credential: ModelCredential?, onProgress: (@MainActor @Sendable (String) -> Void)? = nil) async throws -> String {
         // Always a fixed sample, never task data. Testing grants no task permission.
         if config.adapter == .transcription {
             guard let sample = Bundle.main.url(forResource: "transcription-probe", withExtension: "wav") else { throw ModelFailure("固定音频测试样本缺失") }
             return try await perform(config: config, credential: credential, system: "", prompt: "", limit: 60, audio: Data(contentsOf: sample), wav: true)
         }
-        return try await perform(config: config, credential: credential, system: "你是连接测试助手。", prompt: "请只回复：连接成功", limit: 60)
+        return try await perform(config: config, credential: credential, system: "你是连接测试助手。", prompt: "请只回复：连接成功", limit: 60, onProgress: onProgress)
     }
     private func perform(config: ModelConfiguration, credential: ModelCredential?, system: String, prompt: String, limit: TimeInterval, onProgress: (@MainActor @Sendable (String) -> Void)? = nil, audio: Data? = nil, wav: Bool = false) async throws -> String {
         let overallDeadline = Date().addingTimeInterval(min(Double(config.timeoutSeconds), limit))
@@ -80,7 +80,7 @@ final class ConfiguredModelService {
             if (300...399).contains(response.statusCode) { return try ModelWire.response(Data(), config: config, status: response.statusCode) }
             var result = Data()
             var decoder = ModelStreamDecoder(adapter: config.adapter)
-            let streaming = audio == nil && config.generation.stream && (200...299).contains(response.statusCode)
+            let streaming = audio == nil && (response.mimeType?.lowercased() == "text/event-stream" || config.generation.stream && response.mimeType?.lowercased() != "application/json") && (200...299).contains(response.statusCode)
             var lastUpdate = Date.distantPast, lastText = ""
             for try await byte in bytes {
                 try Task.checkCancellation()
@@ -96,7 +96,11 @@ final class ConfiguredModelService {
             if streaming {
                 let output = try decoder.finish(); onProgress?(output); return output
             }
-            return try ModelWire.response(result, config: config, status: response.statusCode)
+            var responseConfig = config
+            responseConfig.generation.stream = false
+            let output = try ModelWire.response(result, config: responseConfig, status: response.statusCode)
+            onProgress?(output)
+            return output
         } catch let failure as ModelFailure { throw failure }
         catch is CancellationError { throw CancellationError() }
         catch {

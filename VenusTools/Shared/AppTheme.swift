@@ -87,3 +87,31 @@ struct AccentLabel: View {
             .background(color.opacity(0.10), in: Capsule())
     }
 }
+
+/// Cumulative stream updates stay visible while the remaining characters catch up.
+struct AIReplyText: View {
+    let text: String
+    var generating = false
+    var animate = true
+    var replayID = ""
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var visible = ""
+    @State private var lastReplayID = ""
+
+    var body: some View {
+        (Text(visible) + Text(generating || visible.count < text.count ? " ▍" : "").foregroundColor(AppTheme.pine))
+            .textSelection(.enabled)
+            .accessibilityLabel(text)
+            .task(id: replayID + text) {
+                if lastReplayID != replayID { lastReplayID = replayID; visible = "" }
+                if reduceMotion || !animate { visible = text; return }
+                if !text.hasPrefix(visible) { visible = "" }
+                while visible.count < text.count && !Task.isCancelled {
+                    let remaining = text.count - visible.count
+                    let step = min(8, max(1, remaining / 20))
+                    visible = String(text.prefix(visible.count + step))
+                    do { try await Task.sleep(for: .milliseconds(20)) } catch { return }
+                }
+            }
+    }
+}

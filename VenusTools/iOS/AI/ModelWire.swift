@@ -155,7 +155,7 @@ struct ModelStreamDecoder {
 
 /// Extract only a top-level JSON message; never show raw attributes, protocol or reasoning.
 enum ModelReplyPreview {
-    static func message(in output: String) -> String {
+    static func message(in output: String, field: String = "message") -> String {
         var raw = output.trimmingCharacters(in: .whitespacesAndNewlines)
         if raw.hasPrefix("<think>") {
             guard let end = raw.range(of: "</think>") else { return "" }
@@ -186,7 +186,7 @@ enum ModelReplyPreview {
                     guard next < chars.count, chars[next] == ":" else { return "" }
                     next += 1
                     while next < chars.count && chars[next].isWhitespace { next += 1 }
-                    if (try? JSONDecoder().decode(String.self, from: Data(key.utf8))) == "message" {
+                    if (try? JSONDecoder().decode(String.self, from: Data(key.utf8))) == field {
                         guard next < chars.count && chars[next] == "\"" else { return "" }
                         return partialString(chars, from: next)
                     }

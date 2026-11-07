@@ -1,5 +1,10 @@
 import SwiftUI
 
+struct TaskPageSwipeExclusions: PreferenceKey {
+    static var defaultValue: [CGRect] { [] }
+    static func reduce(value: inout [CGRect], nextValue: () -> [CGRect]) { value += nextValue() }
+}
+
 struct TaskDetailView: View {
     @ObservedObject var store: ReminderStore
     let taskID: UUID
@@ -11,15 +16,16 @@ struct TaskDetailView: View {
     @State private var history = false
     @State private var executionCalendar = false
     @State private var delete = false
+    @State private var swipeExclusions: [CGRect] = []
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         Group {
             if let task = store.item(taskID) {
                 VStack(spacing: 0) {
-                    Picker("详情页签", selection: Binding(get: { tab }, set: { selection in
-                        if selection == 1 && editorSession == nil { editorSession = UUID() }
-                        tab = selection
-                    })) { Text("任务信息").tag(0); Text("任务编辑").tag(1) }.pickerStyle(.segmented).padding()
+                    Picker("详情页签", selection: Binding(get: { tab }, set: selectTab)) {
+                        Text("任务信息").tag(0); Text("任务编辑").tag(1)
+                    }.pickerStyle(.segmented).padding()
+                        .accessibilityHint("左右滑动可以切换，任务信息页左滑返回")
                     ZStack {
                         if tab == 0 { information(task) }
                         if let session = editorSession {
@@ -38,6 +44,15 @@ struct TaskDetailView: View {
                         }
                     }
                 }
+                .onPreferenceChange(TaskPageSwipeExclusions.self) { swipeExclusions = $0 }
+                .simultaneousGesture(DragGesture(minimumDistance: 30, coordinateSpace: .global).onEnded { value in
+                    guard value.startLocation.x > 28, !swipeExclusions.contains(where: { $0.contains(value.startLocation) }) else { return }
+                    switch TaskDetailSwipe.action(tab: tab, translation: value.translation) {
+                    case .none: break
+                    case .exit: dismiss()
+                    case .tab(let next): withAnimation(.easeOut(duration: 0.2)) { selectTab(next) }
+                    }
+                })
                 .navigationTitle("任务详情").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
@@ -61,6 +76,10 @@ struct TaskDetailView: View {
         .onAppear { onEditingChanged(tab == 1) }
         .onChange(of: tab) { _, value in onEditingChanged(value == 1) }
         .onDisappear { onEditingChanged(false) }
+    }
+    private func selectTab(_ selection: Int) {
+        if selection == 1 && editorSession == nil { editorSession = UUID() }
+        tab = selection
     }
     private func information(_ task: ReminderItem) -> some View {
         ScrollView { VStack(alignment: .leading, spacing: 18) {
@@ -101,6 +120,7 @@ struct TaskDetailView: View {
                         .frame(height: 360).padding(.top, 12)
                         .background(AppTheme.canvas, in: RoundedRectangle(cornerRadius: 14))
                         .clipShape(RoundedRectangle(cornerRadius: 14))
+                        .background { GeometryReader { geometry in Color.clear.preference(key: TaskPageSwipeExclusions.self, value: [geometry.frame(in: .global)]) } }
                 }.font(.subheadline)
             }
         }.frame(maxWidth: .infinity, alignment: .leading).surfaceCard()

@@ -46,6 +46,8 @@
 		BA1000000000000000000001 = {isa = PBXBuildFile; fileRef = AA1000000000000000000001; };
 		BA1000000000000000000002 = {isa = PBXBuildFile; fileRef = AA1000000000000000000001; };
 		BA1000000000000000000003 = {isa = PBXBuildFile; fileRef = AA1000000000000000000002; };
+		BA2000000000000000000001 = {isa = PBXBuildFile; fileRef = AA2000000000000000000001; };
+		BA2000000000000000000002 = {isa = PBXBuildFile; fileRef = AA2000000000000000000001; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -106,6 +108,7 @@
 		A94000000000000000000001 /* Watch Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = VenusTools/Watch/Resources/Assets.xcassets; sourceTree = SOURCE_ROOT; };
 		AA1000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Shared/TaskExecution.swift"; sourceTree = "<group>"; };
 		AA1000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "iOS/TaskExecutionCalendarView.swift"; sourceTree = "<group>"; };
+		AA2000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Shared/TaskDailyOverview.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -225,6 +228,7 @@
 			isa = PBXGroup;
 			children = (
 				A80000000000000000000001 /* TaskModel.swift */,
+				AA2000000000000000000001,
 				AA1000000000000000000001,
 				AA1000000000000000000002,
 				A80000000000000000000002 /* TaskRules.swift */,
@@ -326,6 +330,7 @@
 				B91000000000000000000005 /* SettingsView.swift in Sources */,
 				B91000000000000000000006 /* ModelConfigurationEditor.swift in Sources */,
 				B20000000000000000000100 /* TaskModel.swift in Sources */,
+				BA2000000000000000000001,
 				BA1000000000000000000001,
 				BA1000000000000000000003,
 				B20000000000000000000200 /* TaskRules.swift in Sources */,
@@ -351,6 +356,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B20000000000000000000101 /* TaskModel.swift in Sources */,
+				BA2000000000000000000002,
 				BA1000000000000000000002,
 				B20000000000000000000201 /* TaskRules.swift in Sources */,
 				B20000000000000000000B00 /* WatchTaskStore.swift in Sources */,

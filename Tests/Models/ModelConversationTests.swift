@@ -2,6 +2,11 @@ import XCTest
 @testable import VenusModelCore
 
 final class ModelConversationTests: XCTestCase {
+    func testSearchExplanationCanBePreviewedWithoutDisplayingOtherFields() {
+        XCTAssertEqual(ModelReplyPreview.message(in: #"{"explanation":"正在查找今"#, field: "explanation"), "正在查找今")
+        XCTAssertEqual(ModelReplyPreview.message(in: #"{"keywords":"隐藏词","explanation":"按执行时间筛选","status":3}"#, field: "explanation"), "按执行时间筛选")
+        XCTAssertEqual(ModelReplyPreview.message(in: #"{"keywords":"隐藏词"}"#, field: "explanation"), "")
+    }
     private func config(_ adapter: ModelAdapter = .openAI) -> ModelConfiguration {
         var value = ModelConfiguration.defaults().last!
         value.adapter = adapter

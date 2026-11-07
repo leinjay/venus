@@ -17,6 +17,7 @@ struct ModelConfigurationEditor: View {
     private let isNew: Bool
     @State private var error: String?
     @State private var testing = false
+    @State private var testPreview = ""
     @State private var testTask: Task<Void, Never>?
     @State private var testToken = UUID()
     @State private var askLeave = false
@@ -138,7 +139,8 @@ struct ModelConfigurationEditor: View {
             Text(config.adapter == .transcription ? "仅发送内置的英文连接测试音频，不读取任务或真实录音。测试可能产生服务费用，不会保存表单或授权后续录音外发。" : "仅发送固定的‘连接成功’测试文字，不读取任务。外部调用可能产生服务费用；测试不会保存表单或授权任务外发。").font(.caption).foregroundStyle(.secondary)
             if testing { HStack { ProgressView(); Text("测试中，最多 60 秒"); Button("取消", action: cancelTest) } }
             else { Button("测试配置", action: test) }
-            if let result = testCurrent { Text((result.success ? (config.adapter == .transcription ? "转写测试成功：" : "文字测试成功：") : "测试失败：") + result.message).font(.caption); Text(result.date.formatted()).font(.caption2).foregroundStyle(.secondary) }
+            if testing && !testPreview.isEmpty { AIReplyText(text: testPreview, generating: true).font(.caption) }
+            if let result = testCurrent { AIReplyText(text: (result.success ? (config.adapter == .transcription ? "转写测试成功：" : "文字测试成功：") : "测试失败：") + result.message).font(.caption); Text(result.date.formatted()).font(.caption2).foregroundStyle(.secondary) }
         }
     }
     private func credentialsChanged() { config.credentialRef = config.execution == .onDevice ? nil : UUID().uuidString; config.test = nil; cancelTest() }
@@ -182,9 +184,14 @@ struct ModelConfigurationEditor: View {
         catch { self.error = error.localizedDescription; return }
         let snapshot = config, credentials = credential, fingerprint = config.fingerprint, token = testToken
         testing = true
+        testPreview = ""
         testTask = Task {
             do {
-                let response = try await ConfiguredModelService.shared.test(config: snapshot, credential: credentials)
+                let response = try await ConfiguredModelService.shared.test(config: snapshot, credential: credentials, onProgress: { partial in
+                    guard token == testToken, testing, config.fingerprint == fingerprint else { return }
+                    let redacted = ([credentials.key] + Array(credentials.headers.values)).filter { !$0.isEmpty }.reduce(partial) { $0.replacingOccurrences(of: $1, with: "[已隐藏]") }
+                    testPreview = String(redacted.prefix(160))
+                })
                 try Task.checkCancellation(); guard token == testToken, config.fingerprint == fingerprint else { return }
                 let redacted = ([credentials.key] + Array(credentials.headers.values)).filter { !$0.isEmpty }.reduce(response) { $0.replacingOccurrences(of: $1, with: "[已隐藏]") }
                 config.test = ModelTestResult(fingerprint: fingerprint, date: Date(), message: String(redacted.prefix(160)), success: true); testing = false

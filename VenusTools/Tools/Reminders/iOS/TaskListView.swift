@@ -14,11 +14,12 @@ struct RemindersView: View {
     @State private var detailEditing = false
     @State private var revealedTaskID: UUID?
     @State private var taskToDelete: ReminderItem?
+    @StateObject private var overviewSummary = TaskOverviewSummary()
     @State private var query = ""
     @State private var keywords: String?
     @State private var explanation = ""
     @State private var now = Date()
-    @State private var status = 0
+    @State private var status = 3
     @State private var priority = -1
     @State private var tagQuery = ""
     @State private var tagsMatchAny = false
@@ -70,7 +71,8 @@ struct RemindersView: View {
         NavigationStack(path: $path) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    if !explanation.isEmpty { HStack(alignment: .top) { Image(systemName: "sparkles"); Text(explanation); Spacer(); Button("清除") { resetFilters() } }.font(.caption).surfaceCard(padding: 12) }
+                    overviewCard
+                    if !explanation.isEmpty { HStack(alignment: .top) { Image(systemName: "sparkles"); AIReplyText(text: explanation, generating: searching); Spacer(); Button("清除") { resetFilters() } }.font(.caption).surfaceCard(padding: 12) }
                     HStack {
                         Image(systemName: "magnifyingglass").foregroundStyle(AppTheme.secondary)
                         TextField("标题、内容、标签或自然语言", text: $query)
@@ -145,10 +147,17 @@ struct RemindersView: View {
             if manageAfterToday { manageAfterToday = false; navigation.openModels(onReturn: { today = true }) }
         }) {
             TaskTodayView(store: store, onManageModels: { manageAfterToday = true; today = false }) { id in today = false; path.append(.detail(id)) }
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationCornerRadius(28)
         }
         .onChange(of: query) { _, _ in searchTask?.cancel(); searchID = UUID(); searching = false; keywords = nil; explanation = "" }
         .onChange(of: hideTitle) { _, _ in store.refreshNotifications() }
         .onAppear { now = Date() }
+        .task(id: overviewRefreshID) {
+            guard overviewIsVisible else { overviewSummary.cancel(); return }
+            await overviewSummary.refresh(TaskDailyOverview(tasks: store.reminders, history: store.database.executionHistory, now: Date()))
+        }
         .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { now = $0 }
         .onChange(of: scenePhase) { _, phase in if phase == .active { now = Date(); store.refreshNotifications() } }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.significantTimeChangeNotification)) { _ in store.refreshNotifications() }
@@ -162,6 +171,29 @@ struct RemindersView: View {
             Text("30 天内可恢复。\(store.reminders.filter { $0.prerequisiteIDs.contains(task.id) }.count) 项后续任务会解除此依赖。")
         }
         .alert("请检查", isPresented: Binding(get: { store.errorMessage != nil || searchError != nil }, set: { if !$0 { store.errorMessage = nil; searchError = nil } })) { Button("知道了") { store.errorMessage = nil; searchError = nil } } message: { Text(searchError ?? store.errorMessage ?? "") }
+    }
+
+    private var overviewIsVisible: Bool { navigation.selectedTab == 0 && path.isEmpty && !today && scenePhase == .active }
+    private var overviewRefreshID: String { "\(overviewIsVisible)-\(store.revision)-\(TaskSchedule.dayString(now))" }
+
+    private var overviewCard: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "sparkles").font(.title3).foregroundStyle(AppTheme.pine)
+                .symbolEffect(.pulse, isActive: overviewSummary.generating)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("今日概览").font(.caption2.weight(.semibold)).foregroundStyle(AppTheme.secondary)
+                AIReplyText(text: overviewSummary.text, generating: overviewSummary.generating, replayID: overviewSummary.replayID.uuidString)
+                    .font(.system(size: 13)).lineLimit(2).foregroundStyle(AppTheme.ink)
+                    .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+            }
+            Button { today = true } label: {
+                HStack(spacing: 3) { Text("查看详情"); Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)) }
+                    .font(.caption).fixedSize().frame(minHeight: 44)
+            }.buttonStyle(.plain).foregroundStyle(AppTheme.pine)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .background(LinearGradient(colors: [AppTheme.surface, AppTheme.sage.opacity(0.65)], startPoint: .leading, endPoint: .trailing), in: RoundedRectangle(cornerRadius: 18))
+        .overlay { RoundedRectangle(cornerRadius: 18).stroke(AppTheme.line.opacity(0.8)) }
     }
 
     private func filterLabel(_ title: String) -> some View {
@@ -225,14 +257,17 @@ struct RemindersView: View {
         }
     }
 
-    private func resetFilters() { query = ""; keywords = nil; explanation = ""; status = 0; priority = -1; tagQuery = ""; fromDate = nil; toDate = nil; tagsMatchAny = false }
+    private func resetFilters() { query = ""; keywords = nil; explanation = ""; status = 3; priority = -1; tagQuery = ""; fromDate = nil; toDate = nil; tagsMatchAny = false }
     private func intelligentSearch() {
         searchTask?.cancel(); searchID = UUID(); let token = searchID, input = query
         guard input.count <= 2000 else { searchError = "查找条件最多 2,000 字"; return }
         searching = true
         searchTask = Task {
             do {
-                let output = try await ConfiguredModelService.shared.respond(purpose: .search, system: "解析任务查询，不执行操作。只输出JSON：{\"keywords\":\"主题关键词，可为空\",\"status\":0未完成或1已完成或2全部,\"priority\":-1全部或0未指定或1低或2中或3高,\"from\":\"yyyy-MM-dd或空\",\"to\":\"yyyy-MM-dd或空\",\"tags\":\"key:value，以英文逗号分隔，可空\",\"explanation\":\"简短说明查询条件\"}。相对日期依据当前日历日和时区；只解析条件，不要生成任务。", prompt: "今天：\(TaskSchedule.dayString(Date()))，时区：\(TimeZone.current.identifier)\n查询：\(input)")
+                let output = try await ConfiguredModelService.shared.respond(purpose: .search, system: "解析任务查询，不执行操作。explanation字段放在最前以便逐字显示。只输出JSON：{\"keywords\":\"主题关键词，可为空\",\"status\":0未完成或1已完成或2全部,\"priority\":-1全部或0未指定或1低或2中或3高,\"from\":\"yyyy-MM-dd或空\",\"to\":\"yyyy-MM-dd或空\",\"tags\":\"key:value，以英文逗号分隔，可空\",\"explanation\":\"简短说明查询条件\"}。相对日期依据当前日历日和时区；只解析条件，不要生成任务。", prompt: "今天：\(TaskSchedule.dayString(Date()))，时区：\(TimeZone.current.identifier)\n查询：\(input)", onProgress: { text in
+                    guard token == searchID, searching else { return }
+                    explanation = ModelReplyPreview.message(in: text, field: "explanation")
+                })
                 let object = try TaskAI.parseObject(output)
                 guard token == searchID, !Task.isCancelled else { return }
                 guard let terms = object["keywords"] as? String, let state = object["status"] as? Int, (0...2).contains(state), let importance = object["priority"] as? Int, (-1...3).contains(importance) else { throw TaskFailure("查找条件格式不正确，请重试") }
@@ -245,7 +280,7 @@ struct RemindersView: View {
                 guard start == nil || end == nil || start! <= end! else { throw TaskFailure("开始日期晚于结束日期") }
                 keywords = terms; status = state; priority = importance; tagQuery = object["tags"] as? String ?? ""
                 fromDate = start; toDate = end; explanation = object["explanation"] as? String ?? "已应用智能查找条件"; searching = false
-            } catch { guard token == searchID else { return }; searching = false; if !(error is CancellationError) { searchError = error.localizedDescription } }
+            } catch { guard token == searchID else { return }; searching = false; if !(error is CancellationError) { explanation = ""; searchError = error.localizedDescription } }
         }
     }
 }

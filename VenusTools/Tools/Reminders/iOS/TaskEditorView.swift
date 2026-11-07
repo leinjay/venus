@@ -270,7 +270,7 @@ struct TaskEditorView: View {
                     }.padding(12).accessibilityLabel("回到最新对话")
                 }
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) { composer }
+            .safeAreaInset(edge: .bottom, spacing: 0) { composer.background { GeometryReader { geometry in Color.clear.preference(key: TaskPageSwipeExclusions.self, value: [geometry.frame(in: .global)]) } } }
         }
     }
 
@@ -279,7 +279,10 @@ struct TaskEditorView: View {
             if message.isUser { Spacer(minLength: 32) }
             else { Image(systemName: "sparkles").font(.caption).foregroundStyle(AppTheme.pine).padding(.top, 14) }
             VStack(alignment: .leading, spacing: 8) {
-                if !message.text.isEmpty { Text(message.text).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
+                if !message.text.isEmpty {
+                    if message.isUser { Text(message.text).textSelection(.enabled) }
+                    else { AIReplyText(text: message.text, generating: message.state == .receiving, animate: message.state == .receiving || message.id == draft.messages.last?.id).fixedSize(horizontal: false, vertical: true) }
+                }
                 if message.state == .receiving {
                     HStack(spacing: 6) { ProgressView().controlSize(.mini); Text(message.text.isEmpty ? "正在等待回复…" : "正在接收回复、核对任务属性…") }.font(.caption).foregroundStyle(AppTheme.secondary)
                 } else if message.state == .stopped {
@@ -536,7 +539,7 @@ struct TaskEditorView: View {
             Section("具体内容 · Markdown") {
                 Toggle("阅读预览", isOn: $previewMarkdown)
                 if previewMarkdown { Text(.init(draft.task.body.isEmpty ? "暂无内容" : draft.task.body)).textSelection(.enabled) }
-                else { TextEditor(text: $draft.task.body).frame(minHeight: 180) }
+                else { TextEditor(text: $draft.task.body).frame(minHeight: 180).background { GeometryReader { geometry in Color.clear.preference(key: TaskPageSwipeExclusions.self, value: [geometry.frame(in: .global)]) } } }
                 Text("\(draft.task.body.count) / 20,000 字").font(.caption).foregroundStyle(.secondary)
             }
             Section("标签") {
