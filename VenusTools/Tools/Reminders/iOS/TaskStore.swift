@@ -72,29 +72,46 @@ final class ReminderStore: NSObject, ObservableObject, WCSessionDelegate, UNUser
         if let base = draft.base {
             guard let latest = old, latest.lifecycle == base.lifecycle else { throw TaskFailure("任务已删除或重新恢复，请重新打开") }
             let (merged, conflicts) = TaskRules.merge(base: base, draft: task, latest: latest)
+            guard conflicts.allSatisfy(choices.contains) else { throw TaskFailure("任务已在其他位置更新，请重新核对冲突属性") }
             task = merged
             for field in conflicts where choices.contains(field) { field.copy(from: draft.task, to: &task) }
         } else if database.tasks.contains(where: { $0.id == task.id }) { throw TaskFailure("任务已保存，请重新打开") }
         task.title = task.title.trimmingCharacters(in: .whitespacesAndNewlines)
         task.tags = TaskRules.normalizedTags(task.tags)
         try TaskRules.validate(task, among: reminders, previous: old)
+        let now = Date()
+        let completesCycle = task.isDone && old?.isDone != true && task.schedule.recurrence != .once
+        var completedCycle: ReminderItem?
+        if completesCycle {
+            var completed = task
+            completed.completedAt = now
+            completedCycle = completed
+            task = try TaskRules.nextCycle(afterCompleting: completed, now: now)
+        }
         var next = database
         next.revision += 1
         task.revision = next.revision
         for field in TaskField.allCases where old.map({ field.value($0) != field.value(task) }) ?? true {
             task.fieldVersions[field.rawValue] = next.revision
         }
-        if old?.isDone != task.isDone { task.completedAt = task.isDone ? Date() : nil }
+        let changesCycle = old.map { $0.schedule != task.schedule && ($0.schedule.recurrence != .once || task.schedule.recurrence != .once) } ?? false
+        if completesCycle || changesCycle { task.fieldVersions[TaskField.isDone.rawValue] = next.revision }
+        if old?.isDone != task.isDone { task.completedAt = task.isDone ? now : nil }
         if old?.addedAt != task.addedAt { task.addedAtInferred = false }
         if let old, old.schedule != task.schedule { task.notificationVersion = UUID() }
         next.tasks.removeAll { $0.id == task.id }; next.tasks.append(task)
         var history = next.history[task.id.uuidString] ?? []
-        history.insert(TaskVersion(source: "iPhone 保存", task: task), at: 0)
+        if var completed = completedCycle {
+            completed.revision = next.revision
+            completed.fieldVersions = task.fieldVersions
+            history.insert(TaskVersion(source: "iPhone 完成本次周期", task: completed), at: 0)
+        }
+        history.insert(TaskVersion(source: completesCycle ? "自动安排下一次" : "iPhone 保存", task: task), at: 0)
         next.history[task.id.uuidString] = Array(history.prefix(20))
         try saveConversation(draft)
         try commit(next)
         try? discardDraft(draft.key)
-        if task.schedule.trigger().map({ $0 > Date() }) == true { refreshNotifications(requestPermission: true) }
+        if !task.isDone, task.schedule.nextOccurrence(after: now) != nil { refreshNotifications(requestPermission: true) }
         return task.id
     }
 
@@ -241,13 +258,29 @@ final class ReminderStore: NSObject, ObservableObject, WCSessionDelegate, UNUser
             let accepted = index.map { TaskRules.accepts(operation, for: next.tasks[$0]) } ?? false
             ack = CompletionAck(operationID: operation.id, accepted: accepted)
             if accepted, let index {
-                next.revision += 1; next.tasks[index].isDone = operation.isDone
-                next.tasks[index].completedAt = operation.isDone ? Date() : nil
-                next.tasks[index].revision = next.revision
-                next.tasks[index].fieldVersions[TaskField.isDone.rawValue] = next.revision
+                let now = Date()
+                let completesCycle = operation.isDone && !next.tasks[index].isDone && next.tasks[index].schedule.recurrence != .once
+                var completed = next.tasks[index]
+                completed.isDone = operation.isDone
+                completed.completedAt = operation.isDone ? now : nil
+                var updated = completed
+                if completesCycle {
+                    do { updated = try TaskRules.nextCycle(afterCompleting: completed, now: now) }
+                    catch { errorMessage = error.localizedDescription; return snapshotContext() }
+                }
+                next.revision += 1
+                updated.revision = next.revision
+                updated.fieldVersions[TaskField.isDone.rawValue] = next.revision
+                if completesCycle { updated.fieldVersions[TaskField.schedule.rawValue] = next.revision }
+                next.tasks[index] = updated
                 ack.completionRevision = next.revision
                 var history = next.history[operation.taskID.uuidString] ?? []
-                history.insert(TaskVersion(source: "Apple Watch", task: next.tasks[index]), at: 0)
+                if completesCycle {
+                    completed.revision = next.revision
+                    completed.fieldVersions = updated.fieldVersions
+                    history.insert(TaskVersion(source: "Apple Watch 完成本次周期", task: completed), at: 0)
+                }
+                history.insert(TaskVersion(source: completesCycle ? "自动安排下一次" : "Apple Watch", task: updated), at: 0)
                 next.history[operation.taskID.uuidString] = Array(history.prefix(20))
             }
             next.acknowledgements[operation.id.uuidString] = ack

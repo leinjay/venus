@@ -46,25 +46,24 @@ actor TaskNotifications {
         let allowed = settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional
         // Capacity is shared with other app notifications; leave non-task entries intact.
         let available = max(0, 64 - existing.filter { !$0.identifier.hasPrefix("task.") }.count)
-        let eligible = tasks.filter {
-            guard !$0.isDone, $0.deletedAt == nil, let date = $0.schedule.trigger(), date > now else { return false }
-            return ledger[$0.notificationVersion.uuidString].map { $0 > now } ?? true
-        }.sorted(by: TaskRules.executionOrder)
-        let selected = Array(eligible.prefix(available))
+        let planned = TaskRules.notificationPlan(tasks, after: now, limit: available + 1, ledger: ledger)
+        let selected = Array(planned.prefix(available))
         center.removePendingNotificationRequests(withIdentifiers: existing.filter { $0.identifier.hasPrefix("task.") }.map(\.identifier))
         guard allowed else { return "通知权限未开启，任务已保存在本机" }
         var failures = 0
-        for item in selected {
+        for occurrence in selected {
+            let item = occurrence.task
             guard current == generation else { return "正在更新通知" }
-            guard let date = item.schedule.trigger() else { continue }
+            let date = occurrence.date
             let content = UNMutableNotificationContent()
             let text = TaskRules.notificationText(item, hideDetails: UserDefaults.standard.bool(forKey: "tasks.hideNotificationTitle"))
             content.title = text.title
             content.body = text.body
             content.sound = .default
             content.userInfo = ["taskID": item.id.uuidString]
-            let parts = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
-            let request = UNNotificationRequest(identifier: "task.\(item.id)", content: content, trigger: UNCalendarNotificationTrigger(dateMatching: parts, repeats: false))
+            var parts = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
+            parts.timeZone = Calendar.current.timeZone
+            let request = UNNotificationRequest(identifier: occurrence.identifier, content: content, trigger: UNCalendarNotificationTrigger(dateMatching: parts, repeats: false))
             do {
                 try await center.add(request)
                 guard current == generation else { continue }
@@ -73,7 +72,7 @@ actor TaskNotifications {
             } catch { failures += 1 }
         }
         if failures > 0 { return "\(failures) 项通知未安排，请重试" }
-        if eligible.count > selected.count { return "系统容量有限，已优先安排最近 \(selected.count) 项提醒" }
-        return "未来任务提醒已安排 · \(selected.count) 项"
+        if planned.count > selected.count { return "已安排最近 \(selected.count) 次提醒 · 系统上限 64 条，打开 App 自动续排" }
+        return "未来任务提醒已安排 · \(selected.count) 次"
     }
 }

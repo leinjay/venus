@@ -89,6 +89,10 @@ struct TaskEditorView: View {
                 }
             } catch { notice = "历史对话读取失败，原文件已保留；请先保留本页内容再重试。" }
         }
+        if value.task.schedule.mode != .instant {
+            value.task.schedule.instant = value.task.schedule.trigger() ?? Date()
+            value.task.schedule.mode = .instant
+        }
         value.conversationID = value.conversationID ?? UUID()
         value.messages = TaskConversation.recovered(value.messages)
         _draft = State(initialValue: value)
@@ -100,8 +104,6 @@ struct TaskEditorView: View {
 
     private var editorContent: some View {
         VStack(spacing: 0) {
-            Picker("编辑方式", selection: $draft.tab) { Text("与 AI 对话").tag(0); Text("属性表单").tag(1) }
-                .pickerStyle(.segmented).padding()
             if processing && draft.tab == 1 { HStack { ProgressView(); Text("正在回复，可继续编辑属性"); Spacer(); Button("停止", action: cancelAnalysis) }.font(.caption).padding(.horizontal).padding(.bottom, 8) }
             if draft.tab == 0 { conversation } else { form }
         }
@@ -114,6 +116,16 @@ struct TaskEditorView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { Button("返回", action: leaveKeepingDraft) }
             ToolbarItem(placement: .topBarTrailing) { Button(action: showModelOptions) { Image(systemName: "cpu") }.accessibilityLabel("选择模型与管理配置") }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    inputFocused = false
+                    draft.tab = draft.tab == 0 ? 1 : 0
+                } label: {
+                    Image(systemName: draft.tab == 0 ? "list.bullet.rectangle" : "bubble.left.and.bubble.right")
+                }
+                .accessibilityLabel(draft.tab == 0 ? "切换到属性表单" : "切换到与 AI 对话")
+                .accessibilityHint("保留当前草稿并切换编辑方式")
+            }
             ToolbarItem(placement: .topBarTrailing) { Button("保存", action: prepareSave).fontWeight(.semibold).accessibilityHint("保存当前任务属性，停止尚未完成的回复") }
         }
         .toolbar(.hidden, for: .tabBar)
@@ -461,16 +473,32 @@ struct TaskEditorView: View {
                 Text("此处的修改在点击保存后生效").font(.caption).foregroundStyle(.secondary)
             }
             Section("时间") {
-                DatePicker("添加时间", selection: $draft.task.addedAt)
-                Picker("执行时间", selection: $draft.task.schedule.mode) { Text("未安排").tag(TaskSchedule.Mode.unplanned); Text("仅日期").tag(TaskSchedule.Mode.day); Text("精确时刻").tag(TaskSchedule.Mode.instant) }
-                if draft.task.schedule.mode == .day {
-                    DatePicker("执行日期", selection: Binding(get: { draft.task.schedule.trigger() ?? Date() }, set: { draft.task.schedule.day = TaskSchedule.dayString($0) }), displayedComponents: .date)
-                    Text("当天 09:00 提醒；若时间已过则不补发").font(.caption)
-                } else if draft.task.schedule.mode == .instant {
-                    DatePicker("执行时刻", selection: $draft.task.schedule.instant)
-                    Text("固定同一时刻，按当前时区显示").font(.caption)
+                DatePicker("执行时间", selection: Binding(
+                    get: { draft.task.schedule.instant },
+                    set: {
+                        draft.task.schedule.instant = $0
+                        draft.task.schedule.mode = .instant
+                        draft.task.schedule.recurrenceAnchor = nil
+                        draft.task.schedule.timeZone = TimeZone.current.identifier
+                    }
+                ), displayedComponents: [.date, .hourAndMinute])
+                Picker("执行周期", selection: $draft.task.schedule.recurrence) {
+                    ForEach(TaskSchedule.Recurrence.allCases) { Text($0.title).tag($0) }
                 }
-            }.onChange(of: draft.task.schedule.mode) { _, mode in if mode == .day && draft.task.schedule.day.isEmpty { draft.task.schedule.day = TaskSchedule.dayString(Date()) } }
+                if draft.task.schedule.recurrence == .hourly {
+                    Stepper("每 \(draft.task.schedule.intervalHours) 小时执行一次", value: $draft.task.schedule.intervalHours, in: 1...8760)
+                    TextField("间隔小时数", value: $draft.task.schedule.intervalHours, format: .number).keyboardType(.numberPad)
+                }
+                if draft.task.schedule.recurrence != .once {
+                    Text("完成本次后自动进入下一次。每天、每周和每月按设置时区的相同时刻执行；每月遇到短月在月末执行。").font(.caption).foregroundStyle(.secondary)
+                    Text("系统最多预排 64 条通知，打开 App 时自动续排。").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .onChange(of: draft.task.schedule.recurrence) { _, _ in
+                draft.task.schedule.recurrenceAnchor = nil
+                draft.task.schedule.timeZone = TimeZone.current.identifier
+            }
+            .onChange(of: draft.task.schedule.intervalHours) { _, _ in draft.task.schedule.recurrenceAnchor = nil }
             Section("具体内容 · Markdown") {
                 Toggle("阅读预览", isOn: $previewMarkdown)
                 if previewMarkdown { Text(.init(draft.task.body.isEmpty ? "暂无内容" : draft.task.body)).textSelection(.enabled) }

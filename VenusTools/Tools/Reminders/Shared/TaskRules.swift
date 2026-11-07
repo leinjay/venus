@@ -36,7 +36,53 @@ struct TaskFailure: LocalizedError {
     init(_ message: String) { self.message = message }
 }
 
+struct TaskNotificationOccurrence {
+    var task: ReminderItem
+    var date: Date
+    var identifier: String { "task.\(task.id).\(date.timeIntervalSince1970)" }
+}
+
 enum TaskRules {
+    static func nextCycle(afterCompleting task: ReminderItem, now: Date) throws -> ReminderItem {
+        guard let due = task.schedule.trigger(),
+              let next = task.schedule.nextOccurrence(after: max(now, due)), task.schedule.recurrence != .once else {
+            throw TaskFailure("无法计算下一次执行时间，请检查执行周期")
+        }
+        var result = task
+        result.schedule.recurrenceAnchor = task.schedule.recurrenceAnchor ?? due
+        result.schedule.mode = .instant
+        result.schedule.instant = next
+        result.isDone = false
+        result.completedAt = nil
+        result.notificationVersion = UUID()
+        return result
+    }
+
+    /// Keep the earliest future occurrences across all tasks within iOS's shared notification capacity.
+    static func notificationPlan(_ tasks: [ReminderItem], after now: Date, limit: Int, ledger: [String: Date]) -> [TaskNotificationOccurrence] {
+        var candidates = tasks.compactMap { task -> TaskNotificationOccurrence? in
+            guard !task.isDone, task.deletedAt == nil else { return nil }
+            if task.schedule.recurrence == .once, let delivered = ledger[task.notificationVersion.uuidString], delivered <= now { return nil }
+            guard let date = task.schedule.nextOccurrence(after: now) else { return nil }
+            return TaskNotificationOccurrence(task: task, date: date)
+        }
+        var result: [TaskNotificationOccurrence] = []
+        for _ in 0..<max(0, limit) {
+            candidates.sort {
+                if $0.date != $1.date { return $0.date < $1.date }
+                return $0.task.id.uuidString < $1.task.id.uuidString
+            }
+            guard !candidates.isEmpty else { break }
+            let occurrence = candidates.removeFirst()
+            result.append(occurrence)
+            if occurrence.task.schedule.recurrence != .once,
+               let date = occurrence.task.schedule.nextOccurrence(after: occurrence.date) {
+                candidates.append(TaskNotificationOccurrence(task: occurrence.task, date: date))
+            }
+        }
+        return result
+    }
+
     static func isOverdue(_ task: ReminderItem, now: Date, calendar: Calendar = .current) -> Bool {
         guard !task.isDone, task.deletedAt == nil, let date = task.schedule.trigger(calendar: calendar) else { return false }
         let cutoff = task.schedule.mode == .day ? calendar.startOfDay(for: now) : now
@@ -72,6 +118,11 @@ enum TaskRules {
             throw TaskFailure("最多 20 个标签；名称 1～20 字，值 1～50 字")
         }
         guard task.schedule.mode != .day || task.schedule.trigger() != nil else { throw TaskFailure("执行日期无效") }
+        if task.schedule.recurrence != .once {
+            guard task.schedule.mode == .instant, TimeZone(identifier: task.schedule.timeZone) != nil else { throw TaskFailure("周期任务需要精确执行时间和有效时区") }
+            guard task.schedule.recurrence != .hourly || (1...8760).contains(task.schedule.intervalHours) else { throw TaskFailure("间隔小时数需要在 1～8760 之间") }
+            guard task.schedule.recurrenceAnchor.map({ $0 <= task.schedule.instant }) ?? true else { throw TaskFailure("周期起点不能晚于执行时间") }
+        }
         let active = tasks.filter { $0.deletedAt == nil && $0.id != task.id } + [task]
         let ids = Set(active.map(\.id))
         guard Set(task.prerequisiteIDs).count == task.prerequisiteIDs.count, task.prerequisiteIDs.allSatisfy({ ids.contains($0) && $0 != task.id }) else {
@@ -95,6 +146,10 @@ enum TaskRules {
         var result = latest
         var conflicts: [TaskField] = []
         for field in TaskField.allCases where field.value(base) != field.value(draft) {
+            if field == .isDone, latest.schedule.recurrence != .once, base.schedule != latest.schedule {
+                conflicts.append(field)
+                continue
+            }
             if field.value(latest) != field.value(base), field.value(latest) != field.value(draft) {
                 conflicts.append(field)
             } else { field.copy(from: draft, to: &result) }
@@ -108,7 +163,7 @@ enum TaskRules {
     }
 
     static func canContinue(after ack: CompletionAck, task: ReminderItem) -> Bool {
-        ack.accepted && ack.completionRevision == task.fieldVersions[TaskField.isDone.rawValue]
+        task.schedule.recurrence == .once && ack.accepted && ack.completionRevision == task.fieldVersions[TaskField.isDone.rawValue]
             && ack.completionRevision != nil && task.deletedAt == nil
     }
 

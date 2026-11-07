@@ -36,10 +36,11 @@ struct TaskDetailView: View {
     private func information(_ task: ReminderItem) -> some View {
         ScrollView { VStack(alignment: .leading, spacing: 18) {
             Text(task.title).font(.system(size: 28, weight: .semibold, design: .serif)).textSelection(.enabled)
-            Button { store.toggle(task) } label: { Label(task.isDone ? "已完成 · 点击恢复" : "标记为已完成", systemImage: task.isDone ? "checkmark.circle.fill" : "circle") }.buttonStyle(.bordered)
+            Button { store.toggle(task) } label: { Label(task.isDone ? "已完成 · 点击恢复" : task.schedule.recurrence == .once ? "标记为已完成" : "完成本次，安排下一次", systemImage: task.isDone ? "checkmark.circle.fill" : "circle") }.buttonStyle(.bordered)
             if !task.summary.isEmpty { Text(task.summary).font(.body).foregroundStyle(AppTheme.secondary).textSelection(.enabled) }
             VStack(alignment: .leading, spacing: 12) {
                 LabeledContent("执行时间", value: task.schedule.label)
+                LabeledContent("执行周期", value: task.schedule.recurrenceLabel)
                 LabeledContent("添加时间", value: task.addedAt.formatted())
                 if task.addedAtInferred { Text("添加时间由旧数据迁移补齐").font(.caption).foregroundStyle(.secondary) }
                 LabeledContent("重要程度", value: task.priority.title)

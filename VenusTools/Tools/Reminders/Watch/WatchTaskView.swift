@@ -64,6 +64,7 @@ struct WatchContentView: View {
                                     VStack(alignment: .leading, spacing: 5) {
                                         Text(task.title).font(.subheadline).foregroundStyle(AppTheme.ink).lineLimit(3)
                                         Text(task.schedule.label).font(.caption2).foregroundStyle(WatchTaskPalette.secondary)
+                                        if task.schedule.recurrence != .once { Text(task.schedule.recurrenceLabel).font(.caption2).foregroundStyle(WatchTaskPalette.secondary) }
                                     }
                                     Spacer(minLength: 0)
                                 }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
@@ -102,6 +103,7 @@ private struct WatchTaskDetailView: View {
                     Text(task.title).font(.headline)
                     Label(task.isDone ? "已完成" : "待完成", systemImage: task.isDone ? "checkmark.circle.fill" : "circle.dotted").font(.caption).foregroundStyle(AppTheme.pine)
                     Text(task.schedule.label).font(.caption)
+                    Text(task.schedule.recurrenceLabel).font(.caption)
                     if !task.summary.isEmpty { Text(task.summary).font(.body) }
                     if task.priority != .unspecified { Text("重要程度：\(task.priority.title)").font(.caption).foregroundStyle(WatchTaskPalette.warning) }
                     if !task.prerequisiteIDs.isEmpty { Text("还有 \(task.prerequisiteIDs.count) 项前置未完成").font(.caption).foregroundStyle(WatchTaskPalette.warning) }

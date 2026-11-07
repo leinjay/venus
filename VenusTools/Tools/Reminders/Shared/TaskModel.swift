@@ -17,9 +17,66 @@ struct TaskSchedule: Codable, Equatable {
     var day: String = ""
     var instant: Date = Date()
     var timeZone: String = TimeZone.current.identifier
+    var recurrence: Recurrence = .once
+    var intervalHours: Int = 1
+    var recurrenceAnchor: Date?
+
+    enum Recurrence: String, Codable, CaseIterable, Identifiable {
+        case once, hourly, daily, weekly, monthly
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .once: return "仅执行一次"
+            case .hourly: return "每隔若干小时"
+            case .daily: return "每天"
+            case .weekly: return "每周"
+            case .monthly: return "每月"
+            }
+        }
+    }
+
+    var recurrenceLabel: String {
+        recurrence == .hourly ? "每 \(intervalHours) 小时" : recurrence.title
+    }
+
+    /// Calculate from the original anchor so January 31 → February 28 → March 31 does not drift.
+    func nextOccurrence(after date: Date) -> Date? {
+        guard let first = trigger() else { return nil }
+        if first > date { return first }
+        guard recurrence != .once else { return nil }
+        let anchor = recurrenceAnchor ?? first
+        if recurrence == .hourly {
+            guard (1...8760).contains(intervalHours) else { return nil }
+            let interval = Double(intervalHours) * 3600
+            let count = floor(date.timeIntervalSince(anchor) / interval) + 1
+            return anchor.addingTimeInterval(max(1, count) * interval)
+        }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: timeZone) ?? .current
+        let component: Calendar.Component
+        let stride: Int
+        switch recurrence {
+        case .daily: component = .day; stride = 1
+        case .weekly: component = .day; stride = 7
+        case .monthly: component = .month; stride = 1
+        default: return nil
+        }
+        let distance = calendar.dateComponents([component], from: anchor, to: date).value(for: component) ?? 0
+        var index = max(1, distance / stride)
+        for _ in 0..<3 {
+            guard let candidate = calendar.date(byAdding: component, value: index * stride, to: anchor) else { return nil }
+            if candidate > date && candidate >= first { return candidate }
+            index += 1
+        }
+        return nil
+    }
 
     static func == (lhs: TaskSchedule, rhs: TaskSchedule) -> Bool {
-        guard lhs.mode == rhs.mode else { return false }
+        guard lhs.mode == rhs.mode, lhs.recurrence == rhs.recurrence else { return false }
+        if lhs.recurrence != .once {
+            guard lhs.timeZone == rhs.timeZone, lhs.recurrenceAnchor == rhs.recurrenceAnchor else { return false }
+            if lhs.recurrence == .hourly && lhs.intervalHours != rhs.intervalHours { return false }
+        }
         switch lhs.mode {
         case .unplanned: return true
         case .day: return lhs.day == rhs.day
@@ -51,6 +108,23 @@ struct TaskSchedule: Codable, Equatable {
         case .day: return "\(day) · 当天提醒"
         case .instant: return instant.formatted(date: .abbreviated, time: .shortened)
         }
+    }
+}
+
+extension TaskSchedule {
+    enum CodingKeys: String, CodingKey {
+        case mode, day, instant, timeZone, recurrence, intervalHours, recurrenceAnchor
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        mode = try values.decodeIfPresent(Mode.self, forKey: .mode) ?? .unplanned
+        day = try values.decodeIfPresent(String.self, forKey: .day) ?? ""
+        instant = try values.decodeIfPresent(Date.self, forKey: .instant) ?? Date()
+        timeZone = try values.decodeIfPresent(String.self, forKey: .timeZone) ?? TimeZone.current.identifier
+        recurrence = try values.decodeIfPresent(Recurrence.self, forKey: .recurrence) ?? .once
+        intervalHours = try values.decodeIfPresent(Int.self, forKey: .intervalHours) ?? 1
+        recurrenceAnchor = try values.decodeIfPresent(Date.self, forKey: .recurrenceAnchor)
     }
 }
 
@@ -145,6 +219,7 @@ enum TaskField: String, Codable, CaseIterable, Identifiable {
         case .body: return task.body
         case .addedAt: return String(task.addedAt.timeIntervalSince1970)
         case .schedule:
+            if task.schedule.recurrence != .once { return json(task.schedule) }
             switch task.schedule.mode {
             case .unplanned: return "unplanned"
             case .day: return "day:\(task.schedule.day)"

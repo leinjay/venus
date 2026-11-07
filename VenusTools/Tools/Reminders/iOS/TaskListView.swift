@@ -283,6 +283,7 @@ struct TaskCard: View {
     @ViewBuilder private var badges: some View {
         AccentLabel(title: task.isDone ? "已完成" : "未完成", color: task.isDone ? AppTheme.pine : AppTheme.amber)
         if isOverdue { AccentLabel(title: "逾期", color: .red) }
+        if task.schedule.recurrence != .once { AccentLabel(title: task.schedule.recurrenceLabel, color: AppTheme.pine) }
         if task.priority != .unspecified {
             AccentLabel(title: task.priority.title, color: task.priority == .high ? AppTheme.terracotta : AppTheme.pine)
         }
