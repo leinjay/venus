@@ -33,13 +33,17 @@ final class ReminderStore: NSObject, ObservableObject, WCSessionDelegate, UNUser
                 if let old = UserDefaults.standard.data(forKey: "venus.tools.reminders.v1") {
                     migrated.tasks = try JSONDecoder().decode([ReminderItem].self, from: old)
                 }
+                for task in migrated.tasks {
+                    migrated.executionHistory[task.id.uuidString] = TaskExecutionHistory.migrate(task: task, versions: [])
+                }
                 try write(migrated); database = migrated
             }
             var clean = database
             let expired = clean.tasks.filter { $0.deletedAt.map { Date().timeIntervalSince($0) > 30 * 86_400 } == true }
             clean.tasks.removeAll { task in expired.contains { $0.id == task.id } }
-            for task in expired { clean.history.removeValue(forKey: task.id.uuidString) }
-            if !expired.isEmpty { clean.revision += 1; try write(clean); database = clean }
+            for task in expired { clean.history.removeValue(forKey: task.id.uuidString); clean.executionHistory.removeValue(forKey: task.id.uuidString) }
+            if !expired.isEmpty { clean.revision += 1 }
+            try write(clean); database = clean
             for task in expired { try? removeConversation(task.id) }
             clearExpiredDrafts()
         } catch { writable = false; errorMessage = "无法读取或迁移任务：\(error.localizedDescription)。原数据已保留，请释放空间后重新打开。" }
@@ -49,6 +53,7 @@ final class ReminderStore: NSObject, ObservableObject, WCSessionDelegate, UNUser
     }
 
     func item(_ id: UUID) -> ReminderItem? { reminders.first { $0.id == id } }
+    func executions(_ id: UUID) -> [TaskExecutionRecord] { database.executionHistory[id.uuidString] ?? [] }
     func versions(_ id: UUID) -> [TaskVersion] { database.history[id.uuidString] ?? [] }
     func unfinishedPrerequisites(_ task: ReminderItem) -> Int {
         task.prerequisiteIDs.filter { item($0)?.isDone == false }.count
@@ -108,6 +113,10 @@ final class ReminderStore: NSObject, ObservableObject, WCSessionDelegate, UNUser
         }
         history.insert(TaskVersion(source: completesCycle ? "自动安排下一次" : "iPhone 保存", task: task), at: 0)
         next.history[task.id.uuidString] = Array(history.prefix(20))
+        var executions = next.executionHistory[task.id.uuidString] ?? []
+        TaskExecutionHistory.capture(previous: old, current: task, completedCycle: completedCycle,
+                                     at: now, source: "iPhone", into: &executions)
+        next.executionHistory[task.id.uuidString] = executions
         try saveConversation(draft)
         try commit(next)
         try? discardDraft(draft.key)
@@ -152,6 +161,7 @@ final class ReminderStore: NSObject, ObservableObject, WCSessionDelegate, UNUser
         do {
             var next = database; next.revision += 1
             next.tasks.removeAll { $0.id == task.id }; next.history.removeValue(forKey: task.id.uuidString)
+            next.executionHistory.removeValue(forKey: task.id.uuidString)
             try commit(next); try? discardDraft(task.id.uuidString); try? removeConversation(task.id)
         } catch { errorMessage = error.localizedDescription }
     }
@@ -272,6 +282,11 @@ final class ReminderStore: NSObject, ObservableObject, WCSessionDelegate, UNUser
                 updated.revision = next.revision
                 updated.fieldVersions[TaskField.isDone.rawValue] = next.revision
                 if completesCycle { updated.fieldVersions[TaskField.schedule.rawValue] = next.revision }
+                var executions = next.executionHistory[operation.taskID.uuidString] ?? []
+                TaskExecutionHistory.capture(previous: next.tasks[index], current: updated,
+                                             completedCycle: completesCycle ? completed : nil,
+                                             at: now, source: "Apple Watch", into: &executions)
+                next.executionHistory[operation.taskID.uuidString] = executions
                 next.tasks[index] = updated
                 ack.completionRevision = next.revision
                 var history = next.history[operation.taskID.uuidString] ?? []

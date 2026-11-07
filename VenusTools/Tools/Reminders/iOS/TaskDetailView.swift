@@ -8,22 +8,26 @@ struct TaskDetailView: View {
     var onRestore: (UUID) -> Void
     @State private var tab = 0
     @State private var history = false
+    @State private var executionCalendar = false
     @State private var delete = false
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         Group {
             if let task = store.item(taskID) {
                 VStack {
-                    Picker("详情页签", selection: $tab) { Text("任务信息").tag(0); Text("依赖查看").tag(1) }.pickerStyle(.segmented).padding()
+                    Picker("详情页签", selection: Binding(get: { tab }, set: { selection in
+                        if selection == 1 { onEdit() } else { tab = selection }
+                    })) { Text("任务信息").tag(0); Text("任务编辑").tag(1); Text("依赖查看").tag(2) }.pickerStyle(.segmented).padding()
                     if tab == 0 { information(task) }
                     else { TaskDependencyView(tasks: store.reminders, current: taskID, onOpen: onOpen) }
                 }
                 .navigationTitle("任务详情").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) { Button("编辑", action: onEdit) }
+                    ToolbarItem(placement: .topBarTrailing) { Button { executionCalendar = true } label: { Image(systemName: "calendar") }.accessibilityLabel("执行日历") }
                     ToolbarItem(placement: .topBarTrailing) { Menu { Button("修改记录") { history = true }; Button("移到回收站", role: .destructive) { delete = true } } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel("任务更多操作") }
                 }
                 .confirmationDialog("移到回收站？30 天内可恢复。\(store.reminders.filter { $0.prerequisiteIDs.contains(taskID) }.count) 项后续任务会解除此依赖，恢复时不自动重连。", isPresented: $delete, titleVisibility: .visible) { Button("移到回收站", role: .destructive) { store.remove(task); if store.item(taskID) == nil { dismiss() } } }
+                .sheet(isPresented: $executionCalendar) { TaskExecutionCalendarView(store: store, taskID: taskID) }
                 .sheet(isPresented: $history) {
                     NavigationStack { List(store.versions(taskID)) { version in
                         VStack(alignment: .leading, spacing: 8) { Text(version.savedAt.formatted()); Text("\(version.source) · \(version.task.title)").font(.caption).foregroundStyle(.secondary); Button("进入表单预览与恢复") { history = false; onRestore(version.id) } }

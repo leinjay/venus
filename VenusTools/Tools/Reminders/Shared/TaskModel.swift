@@ -376,4 +376,26 @@ struct TaskDatabase: Codable {
     var tasks: [ReminderItem] = []
     var history: [String: [TaskVersion]] = [:]
     var acknowledgements: [String: CompletionAck] = [:]
+    var executionHistory: [String: [TaskExecutionRecord]] = [:]
+}
+
+
+extension TaskDatabase {
+    enum CodingKeys: String, CodingKey { case schema, revision, tasks, history, acknowledgements, executionHistory }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        schema = try values.decodeIfPresent(Int.self, forKey: .schema) ?? 2
+        revision = try values.decodeIfPresent(Int.self, forKey: .revision) ?? 0
+        tasks = try values.decodeIfPresent([ReminderItem].self, forKey: .tasks) ?? []
+        history = try values.decodeIfPresent([String: [TaskVersion]].self, forKey: .history) ?? [:]
+        acknowledgements = try values.decodeIfPresent([String: CompletionAck].self, forKey: .acknowledgements) ?? [:]
+        if let stored = try values.decodeIfPresent([String: [TaskExecutionRecord]].self, forKey: .executionHistory) {
+            executionHistory = stored
+        } else {
+            executionHistory = Dictionary(uniqueKeysWithValues: tasks.map { task in
+                (task.id.uuidString, TaskExecutionHistory.migrate(task: task, versions: history[task.id.uuidString] ?? []))
+            })
+        }
+    }
 }
