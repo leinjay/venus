@@ -16,6 +16,7 @@ struct RemindersView: View {
     @State private var taskToDelete: ReminderItem?
     @StateObject private var overviewSummary = TaskOverviewSummary()
     @State private var query = ""
+    @FocusState private var searchFocused: Bool
     @State private var keywords: String?
     @State private var explanation = ""
     @State private var now = Date()
@@ -77,8 +78,17 @@ struct RemindersView: View {
                         Image(systemName: "magnifyingglass").foregroundStyle(AppTheme.secondary)
                         TextField("标题、内容、标签或自然语言", text: $query)
                             .submitLabel(.search)
+                            .focused($searchFocused)
+                            .onSubmit { searchFocused = false }
                         if !query.isEmpty { Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }.accessibilityLabel("清除搜索") }
                     }.padding(12).background(AppTheme.line.opacity(0.65), in: Capsule())
+                        .background {
+                            if searchFocused {
+                                SearchOutsideTap { searchFocused = false }
+                                    .allowsHitTesting(false)
+                                    .accessibilityHidden(true)
+                            }
+                        }
                     HStack {
                         Picker("完成状态", selection: $status) { Text("逾期").tag(3); Text("未完成").tag(0); Text("已完成").tag(1); Text("全部").tag(2) }.pickerStyle(.segmented)
                         Button { grid.toggle() } label: { Image(systemName: grid ? "list.bullet" : "square.grid.2x2") }.accessibilityLabel(grid ? "切换列表" : "切换卡片")
@@ -282,6 +292,51 @@ struct RemindersView: View {
                 keywords = terms; status = state; priority = importance; tagQuery = object["tags"] as? String ?? ""
                 fromDate = start; toDate = end; explanation = object["explanation"] as? String ?? "已应用智能查找条件"; searching = false
             } catch { guard token == searchID else { return }; searching = false; if !(error is CancellationError) { explanation = ""; searchError = error.localizedDescription } }
+        }
+    }
+}
+
+// Observe taps in the app window without taking the tap away from controls or cards.
+private struct SearchOutsideTap: UIViewRepresentable {
+    let dismiss: () -> Void
+
+    func makeUIView(context: Context) -> TapArea { TapArea() }
+
+    func updateUIView(_ view: TapArea, context: Context) {
+        view.dismiss = dismiss
+    }
+
+    static func dismantleUIView(_ view: TapArea, coordinator: ()) {
+        view.detach()
+        view.dismiss = nil
+    }
+
+    final class TapArea: UIView, UIGestureRecognizerDelegate {
+        var dismiss: (() -> Void)?
+        private lazy var tap: UITapGestureRecognizer = {
+            let gesture = UITapGestureRecognizer(target: self, action: #selector(didTap))
+            gesture.cancelsTouchesInView = false
+            gesture.delaysTouchesEnded = false
+            gesture.delegate = self
+            return gesture
+        }()
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            detach()
+            window?.addGestureRecognizer(tap)
+        }
+
+        func detach() { tap.view?.removeGestureRecognizer(tap) }
+
+        @objc private func didTap() { dismiss?() }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            !bounds.contains(touch.location(in: self))
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            true
         }
     }
 }
