@@ -2,6 +2,11 @@ import Foundation
 import Combine
 import AVFoundation
 
+private struct WatchRecordingFailure: LocalizedError {
+    var message: String
+    var errorDescription: String? { message }
+}
+
 @MainActor
 final class WatchRecordingStore: ObservableObject {
     @Published private(set) var isRecording = false
@@ -41,7 +46,7 @@ final class WatchRecordingStore: ObservableObject {
                 AVEncoderBitRateKey: 64_000
             ])
             recorder.isMeteringEnabled = true
-            guard recorder.prepareToRecord(), recorder.record() else { throw ModelFailure("手表麦克风未能启动，请重试") }
+            guard recorder.prepareToRecord(), recorder.record() else { throw WatchRecordingFailure(message: "手表麦克风未能启动，请重试") }
             self.recorder = recorder
             currentID = id
             startedAt = .now
