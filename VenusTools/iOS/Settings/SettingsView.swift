@@ -146,7 +146,7 @@ private struct ModelDeleteView: View {
 struct ModelBindingsView: View {
     var body: some View {
         List {
-            Section { ModelBindingPanel(purpose: .dialogue); ModelBindingPanel(purpose: .summary); ModelBindingPanel(purpose: .search); ModelBindingPanel(purpose: .transcription) }
+            Section { ModelBindingPanel(purpose: .dialogue); ModelBindingPanel(purpose: .summary); ModelBindingPanel(purpose: .search); ModelBindingPanel(purpose: .transcription); ModelBindingPanel(purpose: .recordingSummary); ModelBindingPanel(purpose: .recordingTranscription) }
             Section { Text("模型改名后引用保持有效；禁用、删除或调用参数变更后，旧请求会停止。配置测试仅使用固定样本，不代表已授权发送任务。").font(.caption).foregroundStyle(.secondary) }
         }.navigationTitle("工具使用模型")
     }
@@ -168,7 +168,7 @@ struct ModelBindingPanel: View {
                 Picker("模型", selection: Binding(get: { selected?.id }, set: { id in
                     do { try registry.bind(id, to: purpose) } catch { self.error = error.localizedDescription }
                 })) {
-                    Text(purpose == .transcription ? "系统离线识别" : "未配置").tag(UUID?.none)
+                    Text(purpose == .transcription || purpose == .recordingTranscription ? "系统离线识别" : "未配置").tag(UUID?.none)
                     ForEach(registry.configurations.filter { $0.enabled && purpose.accepts($0) || $0.id == selected?.id }) { config in Text(config.name + " · " + config.execution.title + (config.enabled ? "" : "（已禁用）")).tag(Optional(config.id)) }
                 }
             }
@@ -181,8 +181,11 @@ struct ModelBindingPanel: View {
                     } else { Button("查看并确认发送范围") { consent = true }.font(.caption) }
                 }
             }
-            if purpose == .transcription && selected == nil {
-                Text("使用手机的离线识别，需要系统听写和语音权限。也可添加音频转写兼容模型，使用麦克风录音后转写，无需 Siri。").font(.caption).foregroundStyle(.secondary)
+            if (purpose == .transcription || purpose == .recordingTranscription) && selected == nil {
+                Text(purpose == .transcription
+                     ? "任务语音默认使用手机本机离线识别；也可添加音频转写服务并单独授权。"
+                     : "录音默认使用手机本机离线识别；也可添加音频转写服务，录音外发需单独授权。")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Button("管理模型配置") { if let onManage { onManage() } else { navigation.openModels() } }.font(.caption)
             if let error { Text(error).font(.caption).foregroundStyle(.red) }

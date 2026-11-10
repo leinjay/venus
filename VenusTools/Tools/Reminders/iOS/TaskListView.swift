@@ -122,6 +122,9 @@ struct RemindersView: View {
             .background(AppTheme.canvas.ignoresSafeArea())
             .navigationTitle("任务提醒").navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { navigation.taskRecordingPage = 1 } label: { Label("录音", systemImage: "waveform") }
+                }
                 ToolbarItem(placement: .topBarTrailing) { Button { path.append(.new) } label: { Image(systemName: "plus") }.accessibilityLabel("新建任务") }
                 ToolbarItem(placement: .topBarTrailing) { Menu {
                     NavigationLink(value: TaskRoute.models) {

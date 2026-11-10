@@ -64,7 +64,7 @@ final class ModelRegistry: ObservableObject {
     func configuration(_ id: UUID?) -> ModelConfiguration? { data.configurations.first { $0.id == id } }
     func selected(_ purpose: ModelPurpose) -> ModelConfiguration? { configuration(data.bindings[purpose.binding]) }
     func credential(_ configuration: ModelConfiguration) throws -> ModelCredential? { try ModelKeychain.read(configuration.credentialRef) }
-    func references(_ id: UUID) -> [ModelPurpose] { [.dialogue, .summary, .transcription].filter { data.bindings[$0.binding] == id } }
+    func references(_ id: UUID) -> [ModelPurpose] { ModelPurpose.allCases.filter { data.bindings[$0.binding] == id } }
     func status(_ config: ModelConfiguration) -> String {
         if !config.enabled { return config.execution == .onDevice && !config.textCapable ? "尚未接入运行能力" : "已禁用" }
         if config.execution == .onDevice {

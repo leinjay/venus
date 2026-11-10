@@ -102,7 +102,7 @@ struct ModelConfigurationEditor: View {
             if config.adapter == .openAI || config.adapter == .transcription { Toggle("使用 Bearer 密钥", isOn: $config.requiresKey) }
             if config.requiresKey { SecureField("API Key（安全保存）", text: $key).textInputAutocapitalization(.never).autocorrectionDisabled() }
             if config.adapter == .anthropic { TextField("API 版本", text: $config.apiVersion) }
-            if config.adapter == .transcription { Text("用于语音转文字：服务须支持 multipart /audio/transcriptions，返回 JSON text。文字聊天模型无法直接转写音频。录音外发由‘任务语音转文字’单独授权。").font(.caption).foregroundStyle(.secondary) }
+            if config.adapter == .transcription { Text("用于语音转文字：服务须支持 multipart /audio/transcriptions，返回 JSON text。文字聊天模型无法直接转写音频。任务语音和录音转写分别单独授权。").font(.caption).foregroundStyle(.secondary) }
             Text(config.execution == .lanService ? "localhost / 127.0.0.1 指手机自身。请使用电脑私网地址并开放服务；HTTP 会明文传输，携带真实密钥时必须 HTTPS。若服务转发云端，请选择第三方。" : "内容将发送到填写的服务；保存不会发起请求，工具首次使用仍需单独授权。").font(.caption).foregroundStyle(.secondary)
         }
     }
@@ -136,7 +136,8 @@ struct ModelConfigurationEditor: View {
     }
     private var testSection: some View {
         Section("测试当前表单") {
-            Text(config.adapter == .transcription ? "仅发送内置的英文连接测试音频，不读取任务或真实录音。测试可能产生服务费用，不会保存表单或授权后续录音外发。" : "仅发送固定的‘连接成功’测试文字，不读取任务。外部调用可能产生服务费用；测试不会保存表单或授权任务外发。").font(.caption).foregroundStyle(.secondary)
+            Text(config.adapter == .transcription ? "仅发送内置的英文连接测试音频，不读取任务或真实录音。测试可能产生服务费用，不会保存表单或授权后续任务语音、录音转写。" : "仅发送固定的‘连接成功’测试文字，不读取任务。外部调用可能产生服务费用；测试不会保存表单或授权任务或录音分析外发。")
+                .font(.caption).foregroundStyle(.secondary)
             if testing { HStack { ProgressView(); Text("测试中，最多 60 秒"); Button("取消", action: cancelTest) } }
             else { Button("测试配置", action: test) }
             if testing && !testPreview.isEmpty { AIReplyText(text: testPreview, generating: true).font(.caption) }

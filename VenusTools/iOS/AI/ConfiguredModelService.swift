@@ -31,15 +31,16 @@ final class ConfiguredModelService {
         guard registry.callEpoch == epoch, try registry.resolve(purpose).fingerprint == config.fingerprint else { throw CancellationError() }
         return output
     }
-    func transcribe(audio url: URL) async throws -> String {
-        let registry = ModelRegistry.shared, config = try registry.resolve(.transcription), epoch = registry.callEpoch
+    func transcribe(audio url: URL, purpose: ModelPurpose = .transcription) async throws -> String {
+        let registry = ModelRegistry.shared, config = try registry.resolve(purpose), epoch = registry.callEpoch
         guard (try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 20_000_001) <= 20_000_000 else { throw ModelFailure("录音超过 20 MB，请重新录制较短内容") }
         let audio = try Data(contentsOf: url), credential = try registry.credential(config), id = UUID()
-        let work = Task { try await self.perform(config: config, credential: credential, system: "", prompt: "", limit: 60, audio: audio) }
+        let isWAV = url.pathExtension.lowercased() == "wav"
+        let work = Task { try await self.perform(config: config, credential: credential, system: "", prompt: "", limit: 60, audio: audio, wav: isWAV) }
         requests[id] = work; defer { requests.removeValue(forKey: id) }
         let output = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
         try Task.checkCancellation()
-        guard registry.callEpoch == epoch, try registry.resolve(.transcription).fingerprint == config.fingerprint else { throw CancellationError() }
+        guard registry.callEpoch == epoch, try registry.resolve(purpose).fingerprint == config.fingerprint else { throw CancellationError() }
         return output
     }
     func test(config: ModelConfiguration, credential: ModelCredential?, onProgress: (@MainActor @Sendable (String) -> Void)? = nil) async throws -> String {

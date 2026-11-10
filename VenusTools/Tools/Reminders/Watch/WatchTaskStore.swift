@@ -14,11 +14,19 @@ private struct WatchTaskCache: Codable {
     var syncedAt: Date?
 }
 
+private struct PendingWatchRecordingTransfer: Codable {
+    var recording: VoiceRecording
+    var filePath: String
+}
+
 final class WatchReminderStore: NSObject, ObservableObject, WCSessionDelegate {
     @Published private var cache = WatchTaskCache()
     @Published private(set) var syncMessage = "等待 iPhone 同步"
+    @Published private(set) var recordingSyncMessage = "录音会先保存在手表"
     private let session = WCSession.default
     private let key = "venus.tools.watch.tasks.v2"
+    private let recordingTransferKey = "venus.tools.watch.recordings.pending.v1"
+    private var recordingTransfers: [PendingWatchRecordingTransfer] = []
     private var timer: AnyCancellable?
     private var waitingForSnapshot = false
     var lastSyncedAt: Date? { cache.syncedAt }
@@ -35,12 +43,59 @@ final class WatchReminderStore: NSObject, ObservableObject, WCSessionDelegate {
     override init() {
         super.init()
         if let data = UserDefaults.standard.data(forKey: key), let value = try? JSONDecoder().decode(WatchTaskCache.self, from: data) { cache = value }
+        if let data = UserDefaults.standard.data(forKey: recordingTransferKey), let value = try? JSONDecoder().decode([PendingWatchRecordingTransfer].self, from: data) { recordingTransfers = value }
         if hasSnapshot { syncMessage = "显示上次同步的任务" }
         if WCSession.isSupported() { session.delegate = self; session.activate() }
         timer = Timer.publish(every: 10, on: .main, in: .common).autoconnect().sink { [weak self] _ in
-            guard let self, !self.cache.pending.isEmpty else { return }
-            self.syncMessage = "待同步 · 手机提醒可能尚未取消"
-            self.sendPending()
+            guard let self else { return }
+            if !self.cache.pending.isEmpty {
+                self.syncMessage = "待同步 · 手机提醒可能尚未取消"
+                self.sendPending()
+            }
+            self.flushRecordingTransfers()
+        }
+    }
+
+    func sendWatchRecording(_ recording: VoiceRecording, from url: URL) {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            recordingSyncMessage = "录音文件不存在，请重新录制"
+            return
+        }
+        if !recordingTransfers.contains(where: { $0.recording.id == recording.id }) {
+            recordingTransfers.append(PendingWatchRecordingTransfer(recording: recording, filePath: url.path))
+            persistRecordingTransfers()
+        }
+        recordingSyncMessage = "录音已保存 · 正在等待传输"
+        flushRecordingTransfers()
+    }
+
+    private func persistRecordingTransfers() {
+        if let data = try? JSONEncoder().encode(recordingTransfers) { UserDefaults.standard.set(data, forKey: recordingTransferKey) }
+    }
+
+    private func flushRecordingTransfers() {
+        guard !recordingTransfers.isEmpty else { return }
+        guard session.activationState == .activated else { recordingSyncMessage = "录音已保存在手表 · 等待连接 iPhone"; return }
+        for pending in Array(recordingTransfers) {
+            let url = URL(fileURLWithPath: pending.filePath)
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                recordingTransfers.removeAll { $0.recording.id == pending.recording.id }
+                persistRecordingTransfers()
+                recordingSyncMessage = "录音文件已不在手表，请重新录制"
+                continue
+            }
+            let alreadyQueued = session.outstandingFileTransfers.contains { $0.file.metadata?["kind"] as? String == "watchRecording" && $0.file.metadata?["id"] as? String == pending.recording.id.uuidString }
+            guard !alreadyQueued else { continue }
+            let item = pending.recording
+            session.transferFile(url, metadata: [
+                "kind": "watchRecording",
+                "id": item.id.uuidString,
+                "title": item.title,
+                "createdAt": item.createdAt.timeIntervalSince1970,
+                "duration": item.duration,
+                "audioFileName": item.audioFileName
+            ])
+            recordingSyncMessage = "正在传输录音到 iPhone"
         }
     }
 
@@ -129,14 +184,31 @@ final class WatchReminderStore: NSObject, ObservableObject, WCSessionDelegate {
     func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
         DispatchQueue.main.async {
             if let error { self.syncMessage = "连接失败：\(error.localizedDescription)" }
-            else { self.requestSync() }
+            else { self.requestSync(); self.flushRecordingTransfers() }
         }
     }
-    func sessionReachabilityDidChange(_ session: WCSession) { DispatchQueue.main.async { self.requestSync() } }
+    func sessionReachabilityDidChange(_ session: WCSession) { DispatchQueue.main.async { self.requestSync(); self.flushRecordingTransfers() } }
     func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) { DispatchQueue.main.async { self.receive(applicationContext) } }
     func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) { DispatchQueue.main.async { self.receive(userInfo) } }
     func session(_ session: WCSession, didReceive file: WCSessionFile) {
         guard file.metadata?["kind"] as? String == "taskSnapshot", let data = try? Data(contentsOf: file.fileURL) else { return }
         DispatchQueue.main.async { self.receive(["taskSnapshot": data]) }
+    }
+    func session(_ session: WCSession, didFinish fileTransfer: WCSessionFileTransfer, error: Error?) {
+        guard fileTransfer.file.metadata?["kind"] as? String == "watchRecording",
+              let id = fileTransfer.file.metadata?["id"] as? String else { return }
+        DispatchQueue.main.async {
+            if let error {
+                self.recordingSyncMessage = "传输未完成 · 稍后会重试"
+                _ = error
+                return
+            }
+            if let pending = self.recordingTransfers.first(where: { $0.recording.id.uuidString == id }) {
+                try? FileManager.default.removeItem(atPath: pending.filePath)
+            }
+            self.recordingTransfers.removeAll { $0.recording.id.uuidString == id }
+            self.persistRecordingTransfers()
+            self.recordingSyncMessage = "录音已传到 iPhone"
+        }
     }
 }

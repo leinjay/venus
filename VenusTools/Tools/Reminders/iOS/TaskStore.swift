@@ -317,6 +317,29 @@ final class ReminderStore: NSObject, ObservableObject, WCSessionDelegate, UNUser
     func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
         DispatchQueue.main.async { let reply = self.receive(userInfo); session.transferUserInfo(reply) }
     }
+    func session(_ session: WCSession, didReceive file: WCSessionFile) {
+        guard file.metadata?["kind"] as? String == "watchRecording",
+              let rawID = file.metadata?["id"] as? String, let id = UUID(uuidString: rawID) else { return }
+        do {
+            try RecordingStorage.prepare()
+            let fileName = "\(id.uuidString).m4a"
+            let audioURL = RecordingStorage.incomingDirectory.appendingPathComponent(fileName)
+            if !FileManager.default.fileExists(atPath: audioURL.path) {
+                try FileManager.default.copyItem(at: file.fileURL, to: audioURL)
+            }
+            let createdAt = (file.metadata?["createdAt"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue) } ?? .now
+            let duration = (file.metadata?["duration"] as? NSNumber)?.doubleValue ?? 0
+            let title = (file.metadata?["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                ?? "手表录音 · \(createdAt.formatted(date: .abbreviated, time: .shortened))"
+            let recording = VoiceRecording(id: id, title: title, createdAt: createdAt, duration: duration,
+                                           audioFileName: fileName, transcript: "", summary: "", origin: .appleWatch)
+            let metadataURL = RecordingStorage.incomingDirectory.appendingPathComponent("\(id.uuidString).json")
+            try JSONEncoder().encode(recording).write(to: metadataURL, options: [.atomic])
+            DispatchQueue.main.async { NotificationCenter.default.post(name: .watchRecordingArrived, object: id) }
+        } catch {
+            DispatchQueue.main.async { self.errorMessage = "手表录音未能导入：\(error.localizedDescription)" }
+        }
+    }
     func sessionReachabilityDidChange(_ session: WCSession) { DispatchQueue.main.async { self.publishSnapshot() } }
     func sessionWatchStateDidChange(_ session: WCSession) { DispatchQueue.main.async { self.publishSnapshot() } }
     func session(_ session: WCSession, didFinish fileTransfer: WCSessionFileTransfer, error: Error?) {

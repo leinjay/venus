@@ -21,6 +21,20 @@ private struct WatchTaskScreen: ViewModifier {
 
 struct WatchContentView: View {
     @StateObject private var store = WatchReminderStore()
+    @StateObject private var recordingStore = WatchRecordingStore()
+
+    var body: some View {
+        TabView {
+            WatchTaskHomeView(store: store).tag(0)
+            NavigationStack { WatchRecordingView(store: recordingStore, reminderStore: store) }.tag(1)
+        }
+        .tabViewStyle(.page)
+        .tint(AppTheme.pine)
+    }
+}
+
+private struct WatchTaskHomeView: View {
+    @ObservedObject var store: WatchReminderStore
     @State private var scope = WatchTaskScope.pending
     @Environment(\.scenePhase) private var scenePhase
 
@@ -37,6 +51,8 @@ struct WatchContentView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("随身任务").font(.system(size: 23, weight: .semibold, design: .serif))
+                    Label("向左滑动进入录音", systemImage: "hand.draw")
+                        .font(.caption2).foregroundStyle(WatchTaskPalette.secondary)
                     HStack(spacing: 4) {
                         ForEach(WatchTaskScope.allCases, id: \.self) { item in
                             Button { scope = item } label: {
@@ -88,7 +104,7 @@ struct WatchContentView: View {
                 }.padding(.horizontal, 10)
             }.modifier(WatchTaskScreen()).navigationTitle("Venus")
                 .onChange(of: scenePhase) { _, phase in if phase == .active { store.requestSync() } }
-        }.tint(AppTheme.pine)
+        }
     }
 }
 

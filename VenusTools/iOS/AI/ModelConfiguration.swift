@@ -17,17 +17,40 @@ enum ModelAdapter: String, Codable, CaseIterable, Identifiable {
     var title: String { switch self { case .mlx: return "本机 MLX"; case .openAI: return "Chat Completions 兼容"; case .anthropic: return "Anthropic Messages"; case .gemini: return "Gemini generateContent"; case .transcription: return "音频转写兼容接口" } }
 }
 enum ModelPurpose: String, CaseIterable, Identifiable {
-    case dialogue, summary, search, transcription
+    case dialogue, summary, search, transcription, recordingSummary, recordingTranscription
     var id: String { rawValue }
-    var binding: String { "reminders." + (self == .search ? ModelPurpose.dialogue.rawValue : rawValue) }
-    var title: String { switch self { case .dialogue: return "任务 AI 对话"; case .summary: return "今日总结"; case .search: return "智能查找"; case .transcription: return "任务语音转文字" } }
-    func accepts(_ config: ModelConfiguration) -> Bool { self == .transcription ? config.adapter == .transcription : config.textCapable && config.adapter != .transcription }
+    var binding: String {
+        switch self {
+        case .recordingSummary: return "recordings.summary"
+        case .recordingTranscription: return "recordings.transcription"
+        case .search: return "reminders." + ModelPurpose.dialogue.rawValue
+        default: return "reminders." + rawValue
+        }
+    }
+    var title: String {
+        switch self {
+        case .dialogue: return "任务 AI 对话"
+        case .summary: return "今日总结"
+        case .search: return "智能查找"
+        case .transcription: return "任务语音转文字"
+        case .recordingSummary: return "录音分析"
+        case .recordingTranscription: return "录音转文字"
+        }
+    }
+    func accepts(_ config: ModelConfiguration) -> Bool {
+        switch self {
+        case .transcription, .recordingTranscription: return config.adapter == .transcription
+        default: return config.textCapable && config.adapter != .transcription
+        }
+    }
     var disclosure: String {
         switch self {
         case .dialogue: return "本轮文字、必要对话、最新任务草稿、明确相关的依赖候选，以及本机语音转写和图片识别文字。原始图片和录音不发送。"
         case .summary: return "今日及此前逾期任务中前 30 项的标题、概要、时间、重要程度和未完成前置数量。完整清单留在手机。"
         case .search: return "仅本次查询、当前日期和时区，用于解析查找条件；不发送任务列表。"
         case .transcription: return "本次麦克风录音（最多两分钟）将发送到此服务进行语音转文字，不发送任务或对话。转写文字会先放入输入栏供核对，发送给文字模型需另行操作。"
+        case .recordingSummary: return "本次录音的转写文字将发送到所选服务生成摘要、主题和行动项。原始音频、任务及其他对话不会发送。"
+        case .recordingTranscription: return "你主动选择的本次录音音频（最多 20 MB）将发送到所选服务转写。任务、摘要和其他对话不会发送。"
         }
     }
 }
