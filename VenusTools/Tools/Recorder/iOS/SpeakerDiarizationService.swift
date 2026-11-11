@@ -184,7 +184,9 @@ enum SpeakerDiarizationService {
                 var speaker = -1
                 if let closest {
                     let intersection = overlap(closest.start, closest.end, paddedStart, paddedEnd)
-                    let gap = midpoint < closest.start ? closest.start - midpoint : (midpoint > closest.end ? midpoint - closest.end : 0)
+                    let closestStart = TimeInterval(closest.start)
+                    let closestEnd = TimeInterval(closest.end)
+                    let gap = midpoint < closestStart ? closestStart - midpoint : (midpoint > closestEnd ? midpoint - closestEnd : 0)
                     if intersection > 0 || gap <= 0.45 { speaker = closest.speaker }
                 }
                 let unpaddedStart = max(0, paddedStart - Double(clipIndex) * interClipSilence)
