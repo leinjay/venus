@@ -171,6 +171,9 @@ private struct RecordingDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var confirmDelete = false
     @State private var showingTranscript = false
+    @State private var selectedTab: RecordingDetailTab = .transcript
+    @State private var isScrubbing = false
+    @State private var scrubberValue: TimeInterval = 0
 
     private var item: VoiceRecording? { store.recording(recordingID) }
     private var isWorking: Bool { store.workingID == recordingID }
@@ -179,25 +182,20 @@ private struct RecordingDetailView: View {
         ScrollView {
             if let item {
                 VStack(alignment: .leading, spacing: 18) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        AccentLabel(title: item.origin == .appleWatch ? "Apple Watch" : "iPhone")
-                        Text(item.title).font(.system(size: 26, weight: .semibold, design: .serif)).foregroundStyle(AppTheme.ink)
-                        Text("\(item.createdAt.formatted(date: .complete, time: .shortened)) · \(RecordingView.timeText(Int(item.duration)))")
-                            .font(.caption).foregroundStyle(AppTheme.secondary)
-                        if !item.supplementalSegments.isEmpty {
-                            Text("含 \(item.supplementalSegments.count) 段补录")
-                                .font(.caption).foregroundStyle(AppTheme.pine)
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            AccentLabel(title: item.origin == .appleWatch ? "Apple Watch" : "iPhone")
+                            Text(item.title).font(.system(size: 26, weight: .semibold, design: .serif)).foregroundStyle(AppTheme.ink)
+                            Text("\(item.createdAt.formatted(date: .complete, time: .shortened)) · \(RecordingView.timeText(Int(item.duration)))")
+                                .font(.caption).foregroundStyle(AppTheme.secondary)
+                            if !item.supplementalSegments.isEmpty {
+                                Text("含 \(item.supplementalSegments.count) 段补录")
+                                    .font(.caption).foregroundStyle(AppTheme.pine)
+                            }
                         }
-                    }
-
-                    HStack(spacing: 12) {
-                        Button { store.togglePlayback(item) } label: {
-                            Label(store.playingID == item.id ? "暂停播放" : "播放录音", systemImage: store.playingID == item.id ? "pause.fill" : "play.fill")
-                                .frame(maxWidth: .infinity).padding(.vertical, 13)
-                                .foregroundStyle(.white).background(AppTheme.pine, in: Capsule())
-                        }.buttonStyle(.plain)
+                        Spacer(minLength: 0)
                         Button(role: .destructive) { confirmDelete = true } label: {
-                            Image(systemName: "trash").frame(width: 46, height: 46).foregroundStyle(AppTheme.terracotta)
+                            Image(systemName: "trash").frame(width: 40, height: 40).foregroundStyle(AppTheme.terracotta)
                                 .background(AppTheme.terracotta.opacity(0.11), in: Circle())
                         }.accessibilityLabel("删除录音")
                     }
@@ -212,55 +210,19 @@ private struct RecordingDetailView: View {
                     }
                     .buttonStyle(.plain)
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Text("转写文字").font(.system(size: 18, weight: .semibold, design: .serif)).foregroundStyle(AppTheme.ink)
-                            Spacer()
-                            Button(isWorking ? "处理中…" : (item.hasUntranscribedSupplement ? "转写补录" : (item.transcript.isEmpty ? "转写录音" : "重新转写"))) {
-                                Task { await store.transcribe(item) }
-                            }
-                            .font(.caption.weight(.semibold)).disabled(isWorking)
-                        }
-                        if item.transcript.isEmpty {
-                            Text("还没有转写文字。可使用本机离线识别，或在录音模型中配置已授权的转写服务。")
-                                .font(.subheadline).foregroundStyle(AppTheme.secondary)
-                        } else {
-                            Button { showingTranscript = true } label: {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text(item.transcript)
-                                        .font(.system(size: 15))
-                                        .foregroundStyle(AppTheme.ink)
-                                        .lineLimit(10)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                    Label("点按查看全文", systemImage: "arrow.up.left.and.arrow.down.right")
-                                        .font(.caption).foregroundStyle(AppTheme.pine)
-                                        .frame(maxWidth: .infinity, alignment: .trailing)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
+                    Picker("录音内容", selection: $selectedTab) {
+                        ForEach(RecordingDetailTab.allCases) { tab in
+                            Text(tab.title).tag(tab)
                         }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading).surfaceCard()
+                    .pickerStyle(.segmented)
+                    .tint(AppTheme.pine)
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Text("录音分析").font(.system(size: 18, weight: .semibold, design: .serif)).foregroundStyle(AppTheme.ink)
-                            Spacer()
-                            Button(isWorking ? "整理中…" : "生成分析") { Task { await store.analyze(item) } }
-                                .font(.caption.weight(.semibold)).disabled(isWorking || item.transcript.isEmpty || item.hasUntranscribedSupplement)
-                        }
-                        if item.summary.isEmpty {
-                            Text(isWorking && !store.workingMessage.isEmpty ? store.workingMessage : "摘要、主题、决定与行动项会显示在这里。")
-                                .font(.subheadline).foregroundStyle(AppTheme.secondary)
-                        } else {
-                            Text(item.summary).font(.system(size: 15)).foregroundStyle(AppTheme.ink).textSelection(.enabled)
-                        }
-                        NavigationLink("管理录音分析模型") { RecordingModelsView() }
-                            .font(.caption)
+                    if selectedTab == .transcript {
+                        transcriptPanel(item)
+                    } else {
+                        analysisPanel(item)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading).surfaceCard()
                 }
                 .padding(20).padding(.bottom, 24)
             } else {
@@ -268,6 +230,11 @@ private struct RecordingDetailView: View {
             }
         }
         .background(AppTheme.canvas.ignoresSafeArea())
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if let item { playbackPanel(item) }
+        }
+        .onAppear { if let item { store.preparePlayback(item) } }
+        .onChange(of: item?.audioFileNames) { _, _ in if let item { store.preparePlayback(item) } }
         .navigationTitle("录音详情")
         .navigationBarTitleDisplayMode(.inline)
         .confirmationDialog("删除这条录音？", isPresented: $confirmDelete, titleVisibility: .visible) {
@@ -278,9 +245,153 @@ private struct RecordingDetailView: View {
             Button("好", role: .cancel) { store.errorMessage = nil }
         } message: { Text(store.errorMessage ?? "") }
         .sheet(isPresented: $showingTranscript) {
-            if let item { RecordingTranscriptSheet(text: item.transcript) }
+            if let item { RecordingTranscriptSheet(text: item.speakerTranscript ?? item.transcript) }
         }
     }
+
+    private func transcriptPanel(_ item: VoiceRecording) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("转写文字").font(.system(size: 18, weight: .semibold, design: .serif)).foregroundStyle(AppTheme.ink)
+                Text("本机离线识别或已配置的转写模型")
+                    .font(.caption).foregroundStyle(AppTheme.secondary)
+            }
+            HStack(spacing: 10) {
+                Spacer(minLength: 0)
+                HStack(spacing: 10) {
+                    Button(isWorking ? "处理中…" : (item.hasUntranscribedSupplement ? "转写补录" : (item.transcript.isEmpty ? "开始转写" : "重新转写"))) {
+                        Task { await store.transcribe(item) }
+                    }
+                    .font(.caption.weight(.semibold)).disabled(isWorking)
+                    Button(item.speakerTranscript == nil ? "区分说话人" : "重新区分") {
+                        Task { await store.distinguishSpeakers(item) }
+                    }
+                    .font(.caption.weight(.semibold)).disabled(isWorking)
+                }
+            }
+            .buttonStyle(.plain)
+            if isWorking, !store.workingMessage.isEmpty {
+                HStack(spacing: 8) {
+                    ProgressView().tint(AppTheme.pine)
+                    Text(store.workingMessage).font(.caption).foregroundStyle(AppTheme.secondary)
+                }
+            }
+            if item.transcriptForAnalysis.isEmpty {
+                Text("还没有转写文字。开始转写后，全文会显示在这里。")
+                    .font(.subheadline).foregroundStyle(AppTheme.secondary)
+            } else {
+                Button { showingTranscript = true } label: {
+                    VStack(alignment: .leading, spacing: 8) {
+                        if let count = item.speakerCount {
+                            Label("已区分 \(count) 位说话人", systemImage: "person.2.wave.2")
+                                .font(.caption.weight(.semibold)).foregroundStyle(AppTheme.pine)
+                        }
+                        Text(item.speakerTranscript ?? item.transcript)
+                            .font(.system(size: 15)).foregroundStyle(AppTheme.ink)
+                            .lineLimit(10).frame(maxWidth: .infinity, alignment: .leading)
+                        Label("点按查看全文", systemImage: "arrow.up.left.and.arrow.down.right")
+                            .font(.caption).foregroundStyle(AppTheme.pine)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            Label("人数由模型自动估计；录音后在本机识别，首次联网下载约 41 MB，音频不会上传。", systemImage: "lock.shield")
+                .font(.caption2).foregroundStyle(AppTheme.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading).surfaceCard()
+    }
+
+    private func analysisPanel(_ item: VoiceRecording) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("录音分析").font(.system(size: 18, weight: .semibold, design: .serif)).foregroundStyle(AppTheme.ink)
+                    Text("摘要、主题、决定与行动项")
+                        .font(.caption).foregroundStyle(AppTheme.secondary)
+                }
+                Spacer()
+                Button(isWorking ? "整理中…" : "生成分析") { Task { await store.analyze(item) } }
+                    .font(.caption.weight(.semibold)).disabled(isWorking || item.transcriptForAnalysis.isEmpty || item.hasUntranscribedSupplement)
+            }
+            if item.summary.isEmpty {
+                Text(isWorking && !store.workingMessage.isEmpty ? store.workingMessage : "完成转写后生成分析结果。")
+                    .font(.subheadline).foregroundStyle(AppTheme.secondary)
+            } else {
+                Text(item.summary).font(.system(size: 15)).foregroundStyle(AppTheme.ink).textSelection(.enabled)
+            }
+            NavigationLink("管理录音分析模型") { RecordingModelsView() }
+                .font(.caption)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading).surfaceCard()
+    }
+
+    private func playbackPanel(_ item: VoiceRecording) -> some View {
+        VStack(spacing: 7) {
+            HStack(spacing: 14) {
+                Button { store.togglePlayback(item) } label: {
+                    Image(systemName: store.playbackIsPlaying && store.playingID == item.id ? "pause.fill" : "play.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 42, height: 42)
+                        .background(AppTheme.pine, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(store.playbackIsPlaying && store.playingID == item.id ? "暂停" : "播放")
+
+                VStack(spacing: 0) {
+                    Slider(value: Binding(
+                        get: { isScrubbing ? scrubberValue : store.playbackCurrentTime },
+                        set: { scrubberValue = $0 }
+                    ), in: 0...max(store.playbackDuration, 0.1), onEditingChanged: { editing in
+                        isScrubbing = editing
+                        if !editing { store.seekPlayback(to: scrubberValue) }
+                        else { scrubberValue = store.playbackCurrentTime }
+                    })
+                    .tint(AppTheme.pine)
+                    HStack {
+                        Text(playerTimeText(isScrubbing ? scrubberValue : store.playbackCurrentTime))
+                        Spacer()
+                        Text(playerTimeText(store.playbackDuration))
+                    }
+                    .font(.caption2.monospacedDigit()).foregroundStyle(AppTheme.secondary)
+                }
+
+                Menu {
+                    ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { rate in
+                        Button("\(rate.formatted(.number.precision(.fractionLength(0...2))))×") {
+                            store.setPlaybackRate(Float(rate))
+                        }
+                    }
+                } label: {
+                    Text("\(store.playbackRate.formatted(.number.precision(.fractionLength(0...2))))×")
+                        .font(.caption.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(AppTheme.pine)
+                        .padding(.horizontal, 9).padding(.vertical, 7)
+                        .background(AppTheme.sage, in: Capsule())
+                }
+                .accessibilityLabel("播放速度")
+            }
+        }
+        .padding(.horizontal, 18).padding(.top, 10).padding(.bottom, 7)
+        .background(AppTheme.surface)
+        .overlay(alignment: .top) { Rectangle().fill(AppTheme.line).frame(height: 1) }
+    }
+
+    private func playerTimeText(_ time: TimeInterval) -> String {
+        let seconds = max(0, Int(time))
+        if seconds >= 3600 { return String(format: "%d:%02d:%02d", seconds / 3600, (seconds / 60) % 60, seconds % 60) }
+        return RecordingView.timeText(seconds)
+    }
+}
+
+private enum RecordingDetailTab: String, CaseIterable, Identifiable, Hashable {
+    case transcript
+    case analysis
+    var id: String { rawValue }
+    var title: String { self == .transcript ? "转写文字" : "录音分析" }
 }
 
 private struct RecordingTranscriptSheet: View {

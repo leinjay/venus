@@ -33,14 +33,17 @@ struct VoiceRecording: Codable, Identifiable, Equatable {
     var supplementalSegments: [RecordingAudioSegment] = []
     var supplementForID: UUID? = nil
     var baseTranscript: String? = nil
+    var speakerTranscript: String? = nil
+    var speakerCount: Int? = nil
 
     var audioFileNames: [String] { [audioFileName] + supplementalSegments.map(\.audioFileName) }
     var hasUntranscribedSupplement: Bool { supplementalSegments.contains { $0.transcript.isEmpty } }
+    var transcriptForAnalysis: String { speakerTranscript ?? transcript }
 }
 
 extension VoiceRecording {
     private enum CodingKeys: String, CodingKey {
-        case id, title, createdAt, duration, audioFileName, transcript, summary, origin, supplementalSegments, supplementForID, baseTranscript
+        case id, title, createdAt, duration, audioFileName, transcript, summary, origin, supplementalSegments, supplementForID, baseTranscript, speakerTranscript, speakerCount
     }
 
     init(from decoder: Decoder) throws {
@@ -56,6 +59,8 @@ extension VoiceRecording {
         supplementalSegments = try values.decodeIfPresent([RecordingAudioSegment].self, forKey: .supplementalSegments) ?? []
         supplementForID = try values.decodeIfPresent(UUID.self, forKey: .supplementForID)
         baseTranscript = try values.decodeIfPresent(String.self, forKey: .baseTranscript)
+        speakerTranscript = try values.decodeIfPresent(String.self, forKey: .speakerTranscript)
+        speakerCount = try values.decodeIfPresent(Int.self, forKey: .speakerCount)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -71,6 +76,8 @@ extension VoiceRecording {
         try values.encode(supplementalSegments, forKey: .supplementalSegments)
         try values.encodeIfPresent(supplementForID, forKey: .supplementForID)
         try values.encodeIfPresent(baseTranscript, forKey: .baseTranscript)
+        try values.encodeIfPresent(speakerTranscript, forKey: .speakerTranscript)
+        try values.encodeIfPresent(speakerCount, forKey: .speakerCount)
     }
 }
 
