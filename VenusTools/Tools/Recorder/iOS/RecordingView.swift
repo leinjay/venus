@@ -170,6 +170,7 @@ private struct RecordingDetailView: View {
     let recordingID: UUID
     @Environment(\.dismiss) private var dismiss
     @State private var confirmDelete = false
+    @State private var showingTranscript = false
 
     private var item: VoiceRecording? { store.recording(recordingID) }
     private var isWorking: Bool { store.workingID == recordingID }
@@ -224,7 +225,21 @@ private struct RecordingDetailView: View {
                             Text("还没有转写文字。可使用本机离线识别，或在录音模型中配置已授权的转写服务。")
                                 .font(.subheadline).foregroundStyle(AppTheme.secondary)
                         } else {
-                            Text(item.transcript).font(.system(size: 15)).foregroundStyle(AppTheme.ink).textSelection(.enabled)
+                            Button { showingTranscript = true } label: {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text(item.transcript)
+                                        .font(.system(size: 15))
+                                        .foregroundStyle(AppTheme.ink)
+                                        .lineLimit(10)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    Label("点按查看全文", systemImage: "arrow.up.left.and.arrow.down.right")
+                                        .font(.caption).foregroundStyle(AppTheme.pine)
+                                        .frame(maxWidth: .infinity, alignment: .trailing)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading).surfaceCard()
@@ -262,5 +277,35 @@ private struct RecordingDetailView: View {
         .alert("录音提示", isPresented: Binding(get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })) {
             Button("好", role: .cancel) { store.errorMessage = nil }
         } message: { Text(store.errorMessage ?? "") }
+        .sheet(isPresented: $showingTranscript) {
+            if let item { RecordingTranscriptSheet(text: item.transcript) }
+        }
+    }
+}
+
+private struct RecordingTranscriptSheet: View {
+    let text: String
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                Text(text)
+                    .font(.system(size: 16))
+                    .foregroundStyle(AppTheme.ink)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+                    .padding(20)
+            }
+            .background(AppTheme.canvas.ignoresSafeArea())
+            .navigationTitle("转写全文")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.large])
     }
 }

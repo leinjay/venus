@@ -177,8 +177,20 @@ struct ModelBindingPanel: View {
                 if config.execution != .onDevice {
                     Text("目标：\(config.destination)").font(.caption).textSelection(.enabled)
                     if registry.authorized(purpose, config: config) {
-                        Button("撤回本功能外发授权", role: .destructive) { do { try registry.setAuthorization(false, purpose: purpose) } catch { self.error = error.localizedDescription } }.font(.caption)
-                    } else { Button("查看并确认发送范围") { consent = true }.font(.caption) }
+                        Button(role: .destructive) { do { try registry.setAuthorization(false, purpose: purpose) } catch { self.error = error.localizedDescription } } label: {
+                            Text("撤回本功能外发授权")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                        }
+                        .font(.caption).buttonStyle(.borderless)
+                    } else {
+                        Button { consent = true } label: {
+                            Label("查看并确认发送范围", systemImage: "hand.raised")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                        }
+                        .font(.caption.weight(.semibold)).foregroundStyle(AppTheme.pine).buttonStyle(.borderless)
+                    }
                 }
             }
             if (purpose == .transcription || purpose == .recordingTranscription) && selected == nil {
@@ -187,7 +199,8 @@ struct ModelBindingPanel: View {
                      : "录音默认使用手机本机离线识别；也可添加音频转写服务，录音外发需单独授权。")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            Button("管理模型配置") { if let onManage { onManage() } else { navigation.openModels() } }.font(.caption)
+            Button("管理模型配置") { if let onManage { onManage() } else { navigation.openModels() } }
+                .font(.caption).buttonStyle(.borderless)
             if let error { Text(error).font(.caption).foregroundStyle(.red) }
         }.padding(.vertical, 6)
             .confirmationDialog("允许\(purpose.title)发送到 \(selected?.name ?? "")（\(selected?.destination ?? "")）？", isPresented: $consent, titleVisibility: .visible) {
