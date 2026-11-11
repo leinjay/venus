@@ -65,7 +65,7 @@ enum SpeakerDiarizationService {
         let modelPaths = try await ensureModels()
         return try await Task.detached(priority: .userInitiated) {
             onStatus("模型已就绪，正在本机分析说话人…")
-            try runDiarization(audioURLs: audioURLs, transcripts: transcripts, modelPaths: modelPaths)
+            return try runDiarization(audioURLs: audioURLs, transcripts: transcripts, modelPaths: modelPaths)
         }.value
     }
 
