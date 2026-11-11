@@ -1,22 +1,7 @@
 import SwiftUI
 
-struct TaskRecordingPages: View {
-    @ObservedObject var taskStore: ReminderStore
-    @ObservedObject var recordingStore: RecordingStore
-    @EnvironmentObject private var navigation: AppNavigation
-
-    var body: some View {
-        TabView(selection: $navigation.taskRecordingPage) {
-            RemindersView(store: taskStore).tag(0)
-            RecordingView(store: recordingStore).tag(1)
-        }
-        .tabViewStyle(.page(indexDisplayMode: .automatic))
-    }
-}
-
 struct RecordingView: View {
     @ObservedObject var store: RecordingStore
-    @EnvironmentObject private var navigation: AppNavigation
 
     var body: some View {
         NavigationStack {
@@ -45,8 +30,8 @@ struct RecordingView: View {
                     }
 
                     HStack(spacing: 9) {
-                        Image(systemName: "hand.draw").foregroundStyle(AppTheme.pine)
-                        Text("从任务页向左滑动，也可以进入录音。手表录音会在同步后出现在这里。")
+                        Image(systemName: "applewatch").foregroundStyle(AppTheme.pine)
+                        Text("手表录音同步后会出现在这里。")
                             .font(.system(size: 12)).foregroundStyle(AppTheme.secondary)
                     }
                     .padding(14)
@@ -60,11 +45,6 @@ struct RecordingView: View {
             .navigationTitle("录音分析")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { navigation.taskRecordingPage = 0 } label: {
-                        Label("任务", systemImage: "chevron.left")
-                    }
-                }
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink { RecordingModelsView() } label: { Image(systemName: "slider.horizontal.3") }
                         .accessibilityLabel("录音模型")
