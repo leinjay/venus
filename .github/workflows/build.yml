@@ -15,7 +15,7 @@ permissions:
 jobs:
   build:
     name: Build unsigned iOS app
-    runs-on: macos-15-intel
+    runs-on: macos-15
 
     steps:
       - name: Check out source
