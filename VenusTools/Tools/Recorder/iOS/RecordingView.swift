@@ -80,22 +80,31 @@ struct RecordingView: View {
             Text(Self.timeText(store.recordingSeconds))
                 .font(.system(size: 31, weight: .medium, design: .rounded))
                 .monospacedDigit().foregroundStyle(AppTheme.ink)
-            Text(store.isRecording ? "\(store.captionMessage) · 单条录音约 20 MB 上限" : "本机保存，录音内容不会自动发送")
+            Text(store.isRecording
+                 ? "\(store.captionMessage) · 单条片段约 20 MB 上限"
+                 : (store.supplementTargetTitle.map { "将补录到「\($0)」" } ?? "本机保存，录音内容不会自动发送"))
                 .font(.caption).foregroundStyle(AppTheme.secondary).multilineTextAlignment(.center)
 
             Button {
                 if store.isRecording { store.stopRecording() }
                 else { Task { await store.startRecording() } }
             } label: {
-                Label(store.isRecording ? "结束并保存" : (store.isStarting ? "正在准备…" : "开始录音"),
+                Label(store.isRecording ? (store.isSupplementing ? "结束并补录" : "结束并保存")
+                      : (store.isStarting ? "正在准备…" : (store.workingID != nil ? "正在处理…" : (store.pendingSupplementForID == nil ? "开始录音" : "开始补录"))),
                       systemImage: store.isRecording ? "stop.fill" : "record.circle")
                     .font(.system(size: 16, weight: .semibold))
                     .frame(maxWidth: .infinity).padding(.vertical, 15)
                     .foregroundStyle(.white)
                     .background(store.isRecording ? AppTheme.terracotta : AppTheme.pine, in: Capsule())
             }
-            .disabled(store.isStarting)
+            .disabled(store.isStarting || store.workingID != nil)
             .buttonStyle(.plain)
+
+            if store.pendingSupplementForID != nil {
+                Button("取消补录") { store.cancelSupplement() }
+                    .font(.caption.weight(.semibold)).foregroundStyle(AppTheme.secondary)
+                    .disabled(store.isStarting)
+            }
 
             if store.isRecording || !store.liveTranscript.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
@@ -121,7 +130,7 @@ struct RecordingView: View {
                 .frame(width: 42, height: 42).background(AppTheme.sage, in: Circle())
             VStack(alignment: .leading, spacing: 5) {
                 Text(item.title).font(.system(size: 14, weight: .semibold)).foregroundStyle(AppTheme.ink).lineLimit(1)
-                Text("\(item.origin == .appleWatch ? "Apple Watch · " : "")\(item.createdAt.formatted(date: .abbreviated, time: .shortened)) · \(Self.timeText(Int(item.duration)))")
+                Text("\(item.origin == .appleWatch ? "Apple Watch · " : "")\(item.createdAt.formatted(date: .abbreviated, time: .shortened)) · \(Self.timeText(Int(item.duration)))\(item.supplementalSegments.isEmpty ? "" : " · 补录 \(item.supplementalSegments.count) 段")")
                     .font(.caption).foregroundStyle(AppTheme.secondary).lineLimit(1)
                 Text(item.summary.isEmpty ? (item.transcript.isEmpty ? "等待转写" : String(item.transcript.prefix(55))) : String(item.summary.prefix(55)))
                     .font(.caption).foregroundStyle(AppTheme.secondary).lineLimit(2)
@@ -159,6 +168,7 @@ private struct RecordingModelsView: View {
 private struct RecordingDetailView: View {
     @ObservedObject var store: RecordingStore
     let recordingID: UUID
+    @Environment(\.dismiss) private var dismiss
     @State private var confirmDelete = false
 
     private var item: VoiceRecording? { store.recording(recordingID) }
@@ -173,6 +183,10 @@ private struct RecordingDetailView: View {
                         Text(item.title).font(.system(size: 26, weight: .semibold, design: .serif)).foregroundStyle(AppTheme.ink)
                         Text("\(item.createdAt.formatted(date: .complete, time: .shortened)) · \(RecordingView.timeText(Int(item.duration)))")
                             .font(.caption).foregroundStyle(AppTheme.secondary)
+                        if !item.supplementalSegments.isEmpty {
+                            Text("含 \(item.supplementalSegments.count) 段补录")
+                                .font(.caption).foregroundStyle(AppTheme.pine)
+                        }
                     }
 
                     HStack(spacing: 12) {
@@ -187,11 +201,21 @@ private struct RecordingDetailView: View {
                         }.accessibilityLabel("删除录音")
                     }
 
+                    Button {
+                        store.prepareSupplement(for: item.id)
+                        dismiss()
+                    } label: {
+                        Label("补录到这条录音", systemImage: "waveform.badge.plus")
+                            .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity).padding(.vertical, 12)
+                            .foregroundStyle(AppTheme.pine).background(AppTheme.sage, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
                             Text("转写文字").font(.system(size: 18, weight: .semibold, design: .serif)).foregroundStyle(AppTheme.ink)
                             Spacer()
-                            Button(isWorking ? "处理中…" : (item.transcript.isEmpty ? "转写录音" : "重新转写")) {
+                            Button(isWorking ? "处理中…" : (item.hasUntranscribedSupplement ? "转写补录" : (item.transcript.isEmpty ? "转写录音" : "重新转写"))) {
                                 Task { await store.transcribe(item) }
                             }
                             .font(.caption.weight(.semibold)).disabled(isWorking)
@@ -210,7 +234,7 @@ private struct RecordingDetailView: View {
                             Text("录音分析").font(.system(size: 18, weight: .semibold, design: .serif)).foregroundStyle(AppTheme.ink)
                             Spacer()
                             Button(isWorking ? "整理中…" : "生成分析") { Task { await store.analyze(item) } }
-                                .font(.caption.weight(.semibold)).disabled(isWorking || item.transcript.isEmpty)
+                                .font(.caption.weight(.semibold)).disabled(isWorking || item.transcript.isEmpty || item.hasUntranscribedSupplement)
                         }
                         if item.summary.isEmpty {
                             Text(isWorking && !store.workingMessage.isEmpty ? store.workingMessage : "摘要、主题、决定与行动项会显示在这里。")

@@ -5,6 +5,22 @@ enum RecordingOrigin: String, Codable {
     case appleWatch
 }
 
+struct RecordingAudioSegment: Codable, Identifiable, Equatable {
+    var id: UUID
+    var audioFileName: String
+    var duration: TimeInterval
+    var transcript: String
+    var origin: RecordingOrigin
+    var createdAt: Date
+}
+
+struct WatchRecordingTarget: Codable, Identifiable, Equatable {
+    var id: UUID
+    var title: String
+    var createdAt: Date
+    var duration: TimeInterval
+}
+
 struct VoiceRecording: Codable, Identifiable, Equatable {
     var id: UUID
     var title: String
@@ -14,6 +30,48 @@ struct VoiceRecording: Codable, Identifiable, Equatable {
     var transcript: String
     var summary: String
     var origin: RecordingOrigin
+    var supplementalSegments: [RecordingAudioSegment] = []
+    var supplementForID: UUID? = nil
+    var baseTranscript: String? = nil
+
+    var audioFileNames: [String] { [audioFileName] + supplementalSegments.map(\.audioFileName) }
+    var hasUntranscribedSupplement: Bool { supplementalSegments.contains { $0.transcript.isEmpty } }
+}
+
+extension VoiceRecording {
+    private enum CodingKeys: String, CodingKey {
+        case id, title, createdAt, duration, audioFileName, transcript, summary, origin, supplementalSegments, supplementForID, baseTranscript
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        title = try values.decode(String.self, forKey: .title)
+        createdAt = try values.decode(Date.self, forKey: .createdAt)
+        duration = try values.decode(TimeInterval.self, forKey: .duration)
+        audioFileName = try values.decode(String.self, forKey: .audioFileName)
+        transcript = try values.decode(String.self, forKey: .transcript)
+        summary = try values.decode(String.self, forKey: .summary)
+        origin = try values.decode(RecordingOrigin.self, forKey: .origin)
+        supplementalSegments = try values.decodeIfPresent([RecordingAudioSegment].self, forKey: .supplementalSegments) ?? []
+        supplementForID = try values.decodeIfPresent(UUID.self, forKey: .supplementForID)
+        baseTranscript = try values.decodeIfPresent(String.self, forKey: .baseTranscript)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(id, forKey: .id)
+        try values.encode(title, forKey: .title)
+        try values.encode(createdAt, forKey: .createdAt)
+        try values.encode(duration, forKey: .duration)
+        try values.encode(audioFileName, forKey: .audioFileName)
+        try values.encode(transcript, forKey: .transcript)
+        try values.encode(summary, forKey: .summary)
+        try values.encode(origin, forKey: .origin)
+        try values.encode(supplementalSegments, forKey: .supplementalSegments)
+        try values.encodeIfPresent(supplementForID, forKey: .supplementForID)
+        try values.encodeIfPresent(baseTranscript, forKey: .baseTranscript)
+    }
 }
 
 struct VoiceRecordingCatalog: Codable {
@@ -43,6 +101,10 @@ enum RecordingStorage {
 
     static func audioURL(for recording: VoiceRecording) -> URL {
         audioDirectory.appendingPathComponent(recording.audioFileName)
+    }
+
+    static func audioURLs(for recording: VoiceRecording) -> [URL] {
+        recording.audioFileNames.map { audioDirectory.appendingPathComponent($0) }
     }
 }
 

@@ -14,6 +14,7 @@ final class ReminderStore: NSObject, ObservableObject, WCSessionDelegate, UNUser
     private let session = WCSession.default
     private let notifications: TaskNotifications
     private var writable = true
+    private var watchRecordingTargets: [WatchRecordingTarget] = []
     var reminders: [ReminderItem] { database.tasks.filter { $0.deletedAt == nil } }
     var deleted: [ReminderItem] { database.tasks.filter { $0.deletedAt != nil } }
     var revision: Int { database.revision }
@@ -228,16 +229,27 @@ final class ReminderStore: NSObject, ObservableObject, WCSessionDelegate, UNUser
 
     func retryDelivery() { publishSnapshot(); refreshNotifications(requestPermission: true) }
 
+    func updateWatchRecordingTargets(_ targets: [WatchRecordingTarget]) {
+        let latest = Array(targets.prefix(40))
+        guard latest != watchRecordingTargets else { return }
+        watchRecordingTargets = latest
+        publishSnapshot()
+    }
+
     private func snapshot() -> TaskSnapshot {
         TaskRules.watchSnapshot(reminders, revision: database.revision)
     }
     private func snapshotContext() -> [String: Any] {
         guard let data = try? JSONEncoder().encode(snapshot()) else { return [:] }
-        if data.count > 40_000 {
+        var context: [String: Any] = [:]
+        if let targets = try? JSONEncoder().encode(watchRecordingTargets) { context["recordingTargets"] = targets }
+        if data.count > 30_000 {
             queueSnapshotFile(data)
-            return ["snapshotPendingRevision": database.revision]
+            context["snapshotPendingRevision"] = database.revision
+        } else {
+            context["taskSnapshot"] = data
         }
-        return ["taskSnapshot": data]
+        return context
     }
     private func queueSnapshotFile(_ data: Data) {
         guard session.activationState == .activated else { return }
@@ -331,8 +343,10 @@ final class ReminderStore: NSObject, ObservableObject, WCSessionDelegate, UNUser
             let duration = (file.metadata?["duration"] as? NSNumber)?.doubleValue ?? 0
             let title = (file.metadata?["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 ?? "手表录音 · \(createdAt.formatted(date: .abbreviated, time: .shortened))"
+            let supplementForID = (file.metadata?["supplementForID"] as? String).flatMap(UUID.init(uuidString:))
             let recording = VoiceRecording(id: id, title: title, createdAt: createdAt, duration: duration,
-                                           audioFileName: fileName, transcript: "", summary: "", origin: .appleWatch)
+                                           audioFileName: fileName, transcript: "", summary: "", origin: .appleWatch,
+                                           supplementForID: supplementForID)
             let metadataURL = RecordingStorage.incomingDirectory.appendingPathComponent("\(id.uuidString).json")
             try JSONEncoder().encode(recording).write(to: metadataURL, options: [.atomic])
             DispatchQueue.main.async { NotificationCenter.default.post(name: .watchRecordingArrived, object: id) }

@@ -1,6 +1,6 @@
 # Venus Tools iOS 原型
 
-这是一个以 SwiftUI 编写的 iPhone + Apple Watch 多工具应用。任务提醒已进入首轮实现，专注、换算和清单保留原型功能；页面沿用 Ruleline 风格。
+这是一个以 SwiftUI 编写的 iPhone + Apple Watch 多工具应用，当前提供任务、录音分析和设置页签；页面沿用 Venus 的视觉风格。
 
 ## 需求文档
 
@@ -23,29 +23,16 @@
 
 ## GitHub Actions 云端构建
 
-仓库包含 `.github/workflows/build.yml`。推送到 `main`、`master` 或 `codex/task-module`、创建 Pull Request，或在 Actions 中手动运行 `Build iOS package`，都会使用 GitHub 提供的 macOS runner 构建 iPhone 应用和 Apple Watch 配套应用。构建完成后，在该次 Actions 运行的 Artifacts 区域选择：
+仓库包含 `.github/workflows/build.yml`。推送到 `main`、`master` 或 `codex/task-module`、创建 Pull Request，或在 Actions 中手动运行 `Build iOS package`，都会使用 GitHub 提供的 macOS runner 构建 iPhone 应用和 Apple Watch 配套应用。工作流只构建设备包，不构建 iOS 模拟器包。构建完成后，在该次 Actions 运行的 Artifacts 区域选择：
 
 - `VenusTools-iPhone-only-unsigned-ipa`：手机安装入口，内含 `VenusTools-iPhone-only-unsigned.ipa`，供 AltServer / AltStore 重新签名；已移除 Watch 子包。
 - `VenusTools-iPhone-Watch-unsigned-ipa`：完整手机与手表配套包，内含 `VenusTools-iPhone-Watch-unsigned.ipa`，供社区 iLoader Watch 分支尝试签名安装；不作为 AltServer 安装入口。
-- `VenusTools-Appetize-iOS-Simulator`：ARM64 iOS 模拟器预览包，内含 `VenusTools-Appetize-iOS-Simulator.zip`，供 Windows 浏览器上传 Appetize 查看原生界面，无需 Apple 签名。
-
-### 在 Windows 浏览器使用 Appetize
-
-1. 在 [Actions](https://github.com/leinjay/venus/actions/workflows/build.yml) 选择最新构建，等待 `Build Appetize iOS Simulator preview` 成功。
-2. 下载 `VenusTools-Appetize-iOS-Simulator`，解压 GitHub 下载的外层 ZIP 一次。
-3. 登录 [Appetize 上传页](https://appetize.io/upload)，上传里面的 `VenusTools-Appetize-iOS-Simulator.zip`；不要上传外层 ZIP 或 IPA。
-4. 处理完成后，选择可用的 iPhone 与 iOS 17 或更新版本，启动预览。
-
-后续每次构建都会新增该预览产物。完整下载、更新与功能边界见 [Appetize 使用步骤](docs/development/appetize-preview.md)。本机 AI 性能、通知和 Watch 同步仍需真机验证。
-
 两份 IPA 都未签名，不能直接安装。包含 Watch 的旧包存在用户反馈的 AltServer 崩溃，本次拆包尚未实测 AltServer 安装。手表开发版可使用 Mac + Xcode 统一签名并运行；Windows 实验性安装步骤及功能约定见 [Venus Watch 精简版与 Windows 安装](docs/development/watch-companion.md)。只安装手机版仍可使用系统通知镜像，手表任务列表与完成操作需安装配套应用。
 
 ## 当前实现
 
 - 设置：唯一中文名称的多模型配置、安全凭据、当前表单测试；任务对话与总结独立引用，智能查找跟随对话，外部调用按功能授权。预置不含密钥的博查 `deepseek-v4-flash` 测试配置。
-- 专注：25 分钟倒计时。
-- 换算：千米/英里即时转换。
-- 清单：本机保存待办。
+- 录音分析：iPhone 与 Watch 录音、转写、分析；两端都能把新片段补录到已有录音。Watch 录音结束后通过 WatchConnectivity 自动回传，传输成功后清理 Watch 源文件。
 - 任务：独立新建/编辑页（AI 对话与属性表单）、完整任务属性、本地草稿与版本、列表/网格、查找过滤、详情/依赖图、回收站、今日助手和系统通知；Watch 精简版查看待办、今日任务、最近完成及概要，支持手动同步和离线缓存。
 
 任务模块位于 `VenusTools/Tools/Reminders/`，按 iOS、Watch、Shared 组织；本机 Qwen3 服务位于 `VenusTools/iOS/AI/`。主题与卡片样式继续使用 `VenusTools/Shared/AppTheme.swift`。

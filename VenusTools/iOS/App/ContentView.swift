@@ -40,6 +40,8 @@ struct ContentView: View {
         }
         .id(skin)
         .environmentObject(navigation)
+        .onAppear { reminderStore.updateWatchRecordingTargets(recordingStore.watchRecordingTargets) }
+        .onChange(of: recordingStore.watchRecordingTargets) { _, targets in reminderStore.updateWatchRecordingTargets(targets) }
         .onChange(of: reminderStore.notificationTaskID) { _, id in if id != nil { navigation.selectedTab = 0 } }
         .tint(AppTheme.pine)
         .preferredColorScheme(.light)

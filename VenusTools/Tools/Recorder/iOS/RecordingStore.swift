@@ -22,14 +22,29 @@ final class RecordingStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     private var speechRequest: SFSpeechAudioBufferRecognitionRequest?
     private var speechTask: SFSpeechRecognitionTask?
     private var audioPlayer: AVAudioPlayer?
+    private var playbackURLs: [URL] = []
+    private var playbackIndex = 0
     private var recordingTimer: Task<Void, Never>?
     private var recordingID: UUID?
+    private var recordingTargetID: UUID?
     private var recordingStartedAt: Date?
     private var recognitionID: UUID?
     private var tapInstalled = false
     private var token = UUID()
     private var writable = true
     private var watchImportObserver: NSObjectProtocol?
+
+    @Published private(set) var pendingSupplementForID: UUID?
+
+    var supplementTargetTitle: String? {
+        (recordingTargetID ?? pendingSupplementForID).flatMap { recording($0)?.title }
+    }
+
+    var isSupplementing: Bool { recordingTargetID != nil || pendingSupplementForID != nil }
+
+    var watchRecordingTargets: [WatchRecordingTarget] {
+        recordings.prefix(40).map { WatchRecordingTarget(id: $0.id, title: $0.title, createdAt: $0.createdAt, duration: $0.duration) }
+    }
 
     override init() {
         super.init()
@@ -50,9 +65,27 @@ final class RecordingStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
     }
 
-    func startRecording() async {
+    func prepareSupplement(for id: UUID) {
+        guard !isRecording, !isStarting, recording(id) != nil else { return }
+        pendingSupplementForID = id
+    }
+
+    func cancelSupplement() {
         guard !isRecording, !isStarting else { return }
+        pendingSupplementForID = nil
+    }
+
+    func startRecording(supplementing targetID: UUID? = nil) async {
+        guard !isRecording, !isStarting else { return }
+        guard workingID == nil else { errorMessage = "录音处理完成后再开始下一段。"; return }
         guard writable else { errorMessage = "录音库不可写，请检查设备存储空间。"; return }
+        let supplementID = targetID ?? pendingSupplementForID
+        if let supplementID, recording(supplementID) == nil {
+            pendingSupplementForID = nil
+            errorMessage = "要补录的原录音已不存在，请返回录音列表重新选择。"
+            return
+        }
+        if playingID != nil { finishPlayback() }
         isStarting = true
         errorMessage = nil
         defer { isStarting = false }
@@ -136,6 +169,8 @@ final class RecordingStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             tapInstalled = true
             engine.prepare()
             try engine.start()
+            recordingTargetID = supplementID
+            pendingSupplementForID = nil
             isRecording = true
             recordingTimer = Task { [weak self] in
                 while !Task.isCancelled {
@@ -170,6 +205,8 @@ final class RecordingStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         isRecording = false
         audioLevel = 0
         recordingID = nil
+        let supplementID = recordingTargetID
+        recordingTargetID = nil
         recordingTimer?.cancel()
         recordingTimer = nil
         token = UUID()
@@ -178,11 +215,29 @@ final class RecordingStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         let createdAt = recordingStartedAt ?? .now
         recordingStartedAt = nil
         let title = "录音 · " + createdAt.formatted(date: .abbreviated, time: .shortened)
+        let transcript = liveTranscript
         let item = VoiceRecording(id: id, title: title, createdAt: createdAt, duration: duration, audioFileName: fileName,
-                                  transcript: liveTranscript, summary: "", origin: .iPhone)
+                                  transcript: transcript, summary: "", origin: .iPhone, supplementForID: supplementID)
         liveTranscript = ""
         try? FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: RecordingStorage.audioURL(for: item).path)
-        recordings.insert(item, at: 0)
+        if let supplementID, let index = recordings.firstIndex(where: { $0.id == supplementID }) {
+            var parent = recordings[index]
+            if parent.baseTranscript == nil { parent.baseTranscript = parent.transcript }
+            parent.supplementalSegments.append(RecordingAudioSegment(id: id, audioFileName: fileName, duration: duration,
+                                                                      transcript: transcript, origin: .iPhone, createdAt: createdAt))
+            parent.supplementalSegments.sort { $0.createdAt < $1.createdAt }
+            parent.duration += duration
+            parent.transcript = Self.combinedTranscript(base: parent.baseTranscript ?? "", segments: parent.supplementalSegments)
+            parent.summary = ""
+            recordings[index] = parent
+        } else {
+            var standalone = item
+            if supplementID != nil {
+                standalone.supplementForID = nil
+                standalone.title = "补录原条目不存在 · " + standalone.title
+            }
+            recordings.insert(standalone, at: 0)
+        }
         do { try persist() }
         catch { errorMessage = error.localizedDescription }
     }
@@ -196,6 +251,7 @@ final class RecordingStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         isRecording = false
         audioLevel = 0
         recordingID = nil
+        recordingTargetID = nil
         recordingStartedAt = nil
         recordingTimer?.cancel()
         recordingTimer = nil
@@ -208,6 +264,8 @@ final class RecordingStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             try RecordingStorage.prepare()
             let sidecars = try FileManager.default.contentsOfDirectory(at: RecordingStorage.incomingDirectory, includingPropertiesForKeys: nil)
                 .filter { $0.pathExtension.lowercased() == "json" }
+            var changed = false
+            var imported: [(sidecar: URL, source: URL)] = []
             for sidecar in sidecars {
                 guard let item = try? JSONDecoder().decode(VoiceRecording.self, from: Data(contentsOf: sidecar)) else { continue }
                 let source = RecordingStorage.incomingDirectory.appendingPathComponent(item.audioFileName)
@@ -215,16 +273,43 @@ final class RecordingStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 if FileManager.default.fileExists(atPath: source.path), !FileManager.default.fileExists(atPath: destination.path) {
                     try FileManager.default.moveItem(at: source, to: destination)
                 }
-                if !recordings.contains(where: { $0.id == item.id }), FileManager.default.fileExists(atPath: destination.path) {
+                guard FileManager.default.fileExists(atPath: destination.path) else { continue }
+                try? FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: destination.path)
+
+                if let parentID = item.supplementForID {
+                    if let parentIndex = recordings.firstIndex(where: { $0.id == parentID }) {
+                        if !recordings[parentIndex].supplementalSegments.contains(where: { $0.id == item.id }) {
+                            var parent = recordings[parentIndex]
+                            if parent.baseTranscript == nil { parent.baseTranscript = parent.transcript }
+                            parent.supplementalSegments.append(RecordingAudioSegment(id: item.id, audioFileName: item.audioFileName,
+                                                                                      duration: item.duration, transcript: item.transcript,
+                                                                                      origin: item.origin, createdAt: item.createdAt))
+                            parent.supplementalSegments.sort { $0.createdAt < $1.createdAt }
+                            parent.duration += item.duration
+                            parent.transcript = Self.combinedTranscript(base: parent.baseTranscript ?? "", segments: parent.supplementalSegments)
+                            parent.summary = ""
+                            recordings[parentIndex] = parent
+                            changed = true
+                        }
+                    } else if !recordings.contains(where: { $0.id == item.id }) {
+                        var standalone = item
+                        standalone.supplementForID = nil
+                        standalone.title = "补录原条目不存在 · " + standalone.title
+                        recordings.append(standalone)
+                        changed = true
+                    }
+                } else if !recordings.contains(where: { $0.id == item.id }) {
                     recordings.append(item)
-                    try? FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: destination.path)
-                    try persist()
+                    changed = true
                 }
-                if FileManager.default.fileExists(atPath: destination.path) { try? FileManager.default.removeItem(at: source) }
-                if FileManager.default.fileExists(atPath: destination.path) { try FileManager.default.removeItem(at: sidecar) }
+                imported.append((sidecar, source))
             }
             recordings.sort { $0.createdAt > $1.createdAt }
-            try persist()
+            if changed { try persist() }
+            for item in imported {
+                if FileManager.default.fileExists(atPath: item.source.path) { try? FileManager.default.removeItem(at: item.source) }
+                try? FileManager.default.removeItem(at: item.sidecar)
+            }
         } catch { errorMessage = "手表录音导入未完成：\(error.localizedDescription)" }
     }
 
@@ -238,13 +323,21 @@ final class RecordingStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, mode: .default)
             try session.setActive(true)
-            let player = try AVAudioPlayer(contentsOf: RecordingStorage.audioURL(for: item))
-            player.delegate = self
-            player.prepareToPlay()
-            guard player.play() else { throw ModelFailure("录音无法播放") }
-            audioPlayer = player
+            audioPlayer?.stop()
+            playbackURLs = RecordingStorage.audioURLs(for: item)
+            playbackIndex = 0
+            try playCurrentSegment()
             playingID = item.id
         } catch { errorMessage = error.localizedDescription }
+    }
+
+    private func playCurrentSegment() throws {
+        guard playbackURLs.indices.contains(playbackIndex) else { throw ModelFailure("录音片段不存在") }
+        let player = try AVAudioPlayer(contentsOf: playbackURLs[playbackIndex])
+        player.delegate = self
+        player.prepareToPlay()
+        guard player.play() else { throw ModelFailure("录音无法播放") }
+        audioPlayer = player
     }
 
     func transcribe(_ item: VoiceRecording) async {
@@ -253,21 +346,40 @@ final class RecordingStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         workingMessage = "正在转写录音…"
         defer { workingID = nil; workingMessage = "" }
         do {
-            let text: String
-            if ModelRegistry.shared.selected(.recordingTranscription) != nil {
-                text = try await ConfiguredModelService.shared.transcribe(audio: RecordingStorage.audioURL(for: item), purpose: .recordingTranscription)
-            } else {
-                text = try await Self.transcribeOnDevice(RecordingStorage.audioURL(for: item))
+            let segmentIDs = item.supplementalSegments.map(\.id)
+            let urls = RecordingStorage.audioURLs(for: item)
+            var transcripts: [String] = []
+            for (index, url) in urls.enumerated() {
+                if urls.count == 1 { workingMessage = "正在转写录音…" }
+                else if index == 0 { workingMessage = "正在转写原录音…" }
+                else { workingMessage = "正在转写补录片段 \(index)/\(urls.count - 1)…" }
+                if ModelRegistry.shared.selected(.recordingTranscription) != nil {
+                    transcripts.append(try await ConfiguredModelService.shared.transcribe(audio: url, purpose: .recordingTranscription))
+                } else {
+                    transcripts.append(try await Self.transcribeOnDevice(url))
+                }
             }
-            updateTranscript(text, for: item.id)
+            if let recordingIndex = recordings.firstIndex(where: { $0.id == item.id }) {
+                var updated = recordings[recordingIndex]
+                updated.baseTranscript = transcripts.first ?? ""
+                for (segmentID, transcript) in zip(segmentIDs, transcripts.dropFirst()) {
+                    if let segmentIndex = updated.supplementalSegments.firstIndex(where: { $0.id == segmentID }) {
+                        updated.supplementalSegments[segmentIndex].transcript = transcript
+                    }
+                }
+                updated.supplementalSegments.sort { $0.createdAt < $1.createdAt }
+                updated.transcript = Self.combinedTranscript(base: updated.baseTranscript ?? "", segments: updated.supplementalSegments)
+                updated.summary = ""
+                recordings[recordingIndex] = updated
+            }
             try persist()
         } catch { errorMessage = error.localizedDescription }
     }
 
     func analyze(_ item: VoiceRecording) async {
         guard workingID == nil else { return }
-        guard !item.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            errorMessage = "先转写录音，再生成分析。"
+        guard !item.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !item.hasUntranscribedSupplement else {
+            errorMessage = "先转写这条录音及其补录，再生成分析。"
             return
         }
         workingID = item.id
@@ -285,6 +397,10 @@ final class RecordingStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             )
             let summary = try ModelReplyPreview.finishedSummary(in: output)
             if let index = recordings.firstIndex(where: { $0.id == item.id }) {
+                guard recordings[index].transcript == item.transcript, !recordings[index].hasUntranscribedSupplement else {
+                    errorMessage = "录音内容已更新，请重新生成分析。"
+                    return
+                }
                 recordings[index].summary = summary
                 try persist()
             }
@@ -292,8 +408,8 @@ final class RecordingStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 
     func delete(_ item: VoiceRecording) {
-        if playingID == item.id { audioPlayer?.stop(); audioPlayer = nil; playingID = nil }
-        try? FileManager.default.removeItem(at: RecordingStorage.audioURL(for: item))
+        if playingID == item.id { audioPlayer?.stop(); finishPlayback() }
+        for url in RecordingStorage.audioURLs(for: item) { try? FileManager.default.removeItem(at: url) }
         recordings.removeAll { $0.id == item.id }
         do { try persist() } catch { errorMessage = error.localizedDescription }
     }
@@ -302,9 +418,35 @@ final class RecordingStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     private func updateTranscript(_ text: String, for id: UUID) {
         if recordingID == id { liveTranscript = text }
+        if let parentIndex = recordings.firstIndex(where: { $0.supplementalSegments.contains(where: { $0.id == id }) }),
+           let segmentIndex = recordings[parentIndex].supplementalSegments.firstIndex(where: { $0.id == id }) {
+            var parent = recordings[parentIndex]
+            parent.supplementalSegments[segmentIndex].transcript = text
+            parent.supplementalSegments.sort { $0.createdAt < $1.createdAt }
+            parent.baseTranscript = parent.baseTranscript ?? parent.transcript
+            parent.transcript = Self.combinedTranscript(base: parent.baseTranscript ?? "", segments: parent.supplementalSegments)
+            parent.summary = ""
+            recordings[parentIndex] = parent
+            try? persist()
+            return
+        }
         guard let index = recordings.firstIndex(where: { $0.id == id }) else { return }
+        if recordings[index].transcript != text { recordings[index].summary = "" }
         recordings[index].transcript = text
         try? persist()
+    }
+
+    private static func appending(_ addition: String, to base: String) -> String {
+        let value = addition.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return base }
+        let existing = base.trimmingCharacters(in: .whitespacesAndNewlines)
+        return existing.isEmpty ? value : existing + "\n" + value
+    }
+
+    private static func combinedTranscript(base: String, segments: [RecordingAudioSegment]) -> String {
+        segments.sorted { $0.createdAt < $1.createdAt }.reduce(base) { value, segment in
+            appending(segment.transcript, to: value)
+        }
     }
 
     private func persist() throws {
@@ -341,8 +483,20 @@ final class RecordingStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
     }
 
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        if flag, playbackIndex + 1 < playbackURLs.count {
+            playbackIndex += 1
+            do { try playCurrentSegment() }
+            catch { errorMessage = error.localizedDescription; finishPlayback() }
+        } else {
+            finishPlayback()
+        }
+    }
+
+    private func finishPlayback() {
         playingID = nil
         audioPlayer = nil
+        playbackURLs = []
+        playbackIndex = 0
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 }

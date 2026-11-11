@@ -14,17 +14,26 @@ final class WatchRecordingStore: ObservableObject {
     @Published private(set) var isStarting = false
     @Published private(set) var seconds = 0
     @Published private(set) var level = 0.0
-    @Published private(set) var message = "录音会先保存在手表"
+    @Published private(set) var message = "录完后自动回传，成功后清理手表副本"
     @Published var errorMessage: String?
 
     private var recorder: AVAudioRecorder?
     private var timer: Task<Void, Never>?
     private var currentID: UUID?
     private var startedAt: Date?
+    private var currentSupplementID: UUID?
+    private var currentSupplementTitle: String?
     private var token = UUID()
 
     func start(using reminderStore: WatchReminderStore) async {
         guard !isRecording, !isStarting else { return }
+        let supplementID = reminderStore.selectedRecordingTargetID
+        if let targetID = supplementID,
+           !reminderStore.recordingTargets.contains(where: { $0.id == targetID }) {
+            errorMessage = "补录目标已不在手机录音清单中，请重新选择。"
+            reminderStore.selectRecordingTarget(nil)
+            return
+        }
         isStarting = true
         errorMessage = nil
         defer { isStarting = false }
@@ -50,10 +59,12 @@ final class WatchRecordingStore: ObservableObject {
             self.recorder = recorder
             currentID = id
             startedAt = .now
+            currentSupplementID = supplementID
+            currentSupplementTitle = supplementID.flatMap { id in reminderStore.recordingTargets.first(where: { $0.id == id })?.title }
             seconds = 0
             isPaused = false
             isRecording = true
-            message = "录音中 · 点按结束后传回 iPhone"
+            message = currentSupplementTitle.map { "录音中 · 将补录到\($0)" } ?? "录音中 · 点按结束后传回 iPhone"
             let currentToken = UUID()
             token = currentToken
             timer = Task { [weak self] in
@@ -67,6 +78,8 @@ final class WatchRecordingStore: ObservableObject {
                 }
             }
         } catch {
+            currentSupplementID = nil
+            currentSupplementTitle = nil
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
             errorMessage = error.localizedDescription
         }
@@ -77,7 +90,7 @@ final class WatchRecordingStore: ObservableObject {
         if isPaused {
             guard recorder.record() else { errorMessage = "录音未能继续，请结束并保存当前内容。"; return }
             isPaused = false
-            message = "录音中 · 点按结束后传回 iPhone"
+            message = currentSupplementTitle.map { "录音中 · 将补录到\($0)" } ?? "录音中 · 点按结束后传回 iPhone"
         } else {
             recorder.pause()
             isPaused = true
@@ -103,10 +116,14 @@ final class WatchRecordingStore: ObservableObject {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         let createdAt = startedAt ?? .now
         startedAt = nil
-        let item = VoiceRecording(id: id, title: "手表录音 · " + createdAt.formatted(date: .abbreviated, time: .shortened),
+        let supplementID = currentSupplementID
+        let item = VoiceRecording(id: id, title: (supplementID == nil ? "手表录音 · " : "手表补录 · ") + createdAt.formatted(date: .abbreviated, time: .shortened),
                                   createdAt: createdAt, duration: duration, audioFileName: fileName,
-                                  transcript: "", summary: "", origin: .appleWatch)
+                                  transcript: "", summary: "", origin: .appleWatch, supplementForID: supplementID)
         reminderStore.sendWatchRecording(item, from: RecordingStorage.audioDirectory.appendingPathComponent(fileName))
+        reminderStore.selectRecordingTarget(nil)
+        currentSupplementID = nil
+        currentSupplementTitle = nil
         message = reminderStore.recordingSyncMessage
     }
 

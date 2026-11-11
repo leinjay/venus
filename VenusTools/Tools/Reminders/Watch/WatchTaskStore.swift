@@ -22,10 +22,14 @@ private struct PendingWatchRecordingTransfer: Codable {
 final class WatchReminderStore: NSObject, ObservableObject, WCSessionDelegate {
     @Published private var cache = WatchTaskCache()
     @Published private(set) var syncMessage = "等待 iPhone 同步"
-    @Published private(set) var recordingSyncMessage = "录音会先保存在手表"
+    @Published private(set) var recordingSyncMessage = "录完后自动回传，成功后清理手表副本"
+    @Published private(set) var recordingTargets: [WatchRecordingTarget] = []
+    @Published private(set) var selectedRecordingTargetID: UUID?
     private let session = WCSession.default
     private let key = "venus.tools.watch.tasks.v2"
     private let recordingTransferKey = "venus.tools.watch.recordings.pending.v1"
+    private let recordingTargetsKey = "venus.tools.watch.recordings.targets.v1"
+    private let recordingSelectionKey = "venus.tools.watch.recordings.selection.v1"
     private var recordingTransfers: [PendingWatchRecordingTransfer] = []
     private var timer: AnyCancellable?
     private var waitingForSnapshot = false
@@ -44,6 +48,8 @@ final class WatchReminderStore: NSObject, ObservableObject, WCSessionDelegate {
         super.init()
         if let data = UserDefaults.standard.data(forKey: key), let value = try? JSONDecoder().decode(WatchTaskCache.self, from: data) { cache = value }
         if let data = UserDefaults.standard.data(forKey: recordingTransferKey), let value = try? JSONDecoder().decode([PendingWatchRecordingTransfer].self, from: data) { recordingTransfers = value }
+        if let data = UserDefaults.standard.data(forKey: recordingTargetsKey), let value = try? JSONDecoder().decode([WatchRecordingTarget].self, from: data) { recordingTargets = value }
+        if let raw = UserDefaults.standard.string(forKey: recordingSelectionKey) { selectedRecordingTargetID = UUID(uuidString: raw) }
         if hasSnapshot { syncMessage = "显示上次同步的任务" }
         if WCSession.isSupported() { session.delegate = self; session.activate() }
         timer = Timer.publish(every: 10, on: .main, in: .common).autoconnect().sink { [weak self] _ in
@@ -69,6 +75,24 @@ final class WatchReminderStore: NSObject, ObservableObject, WCSessionDelegate {
         flushRecordingTransfers()
     }
 
+    var selectedRecordingTargetTitle: String? {
+        selectedRecordingTargetID.flatMap { id in recordingTargets.first(where: { $0.id == id })?.title }
+    }
+
+    func selectRecordingTarget(_ id: UUID?) {
+        selectedRecordingTargetID = id
+        if let id { UserDefaults.standard.set(id.uuidString, forKey: recordingSelectionKey) }
+        else { UserDefaults.standard.removeObject(forKey: recordingSelectionKey) }
+    }
+
+    func receiveRecordingTargets(_ targets: [WatchRecordingTarget]) {
+        recordingTargets = Array(targets.prefix(40))
+        if let selectedRecordingTargetID, !recordingTargets.contains(where: { $0.id == selectedRecordingTargetID }) {
+            selectRecordingTarget(nil)
+        }
+        if let data = try? JSONEncoder().encode(recordingTargets) { UserDefaults.standard.set(data, forKey: recordingTargetsKey) }
+    }
+
     private func persistRecordingTransfers() {
         if let data = try? JSONEncoder().encode(recordingTransfers) { UserDefaults.standard.set(data, forKey: recordingTransferKey) }
     }
@@ -87,14 +111,16 @@ final class WatchReminderStore: NSObject, ObservableObject, WCSessionDelegate {
             let alreadyQueued = session.outstandingFileTransfers.contains { $0.file.metadata?["kind"] as? String == "watchRecording" && $0.file.metadata?["id"] as? String == pending.recording.id.uuidString }
             guard !alreadyQueued else { continue }
             let item = pending.recording
-            session.transferFile(url, metadata: [
+            var metadata: [String: Any] = [
                 "kind": "watchRecording",
                 "id": item.id.uuidString,
                 "title": item.title,
                 "createdAt": item.createdAt.timeIntervalSince1970,
                 "duration": item.duration,
                 "audioFileName": item.audioFileName
-            ])
+            ]
+            if let parentID = item.supplementForID { metadata["supplementForID"] = parentID.uuidString }
+            session.transferFile(url, metadata: metadata)
             recordingSyncMessage = "正在传输录音到 iPhone"
         }
     }
@@ -131,6 +157,10 @@ final class WatchReminderStore: NSObject, ObservableObject, WCSessionDelegate {
     }
     private func receive(_ context: [String: Any], markReceived: Bool = true) {
         var receivedSnapshot = false
+        if let data = context["recordingTargets"] as? Data,
+           let targets = try? JSONDecoder().decode([WatchRecordingTarget].self, from: data) {
+            receiveRecordingTargets(targets)
+        }
         if let data = context["taskSnapshot"] as? Data, let snapshot = try? JSONDecoder().decode(TaskSnapshot.self, from: data), snapshot.revision >= cache.snapshot.revision {
             cache.snapshot = TaskRules.mergeSnapshot(snapshot, into: cache.snapshot)
             receivedSnapshot = true
