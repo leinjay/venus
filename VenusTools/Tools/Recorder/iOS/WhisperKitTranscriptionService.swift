@@ -22,7 +22,7 @@ actor WhisperKitTranscriptionService {
 
         let results = try await pipeline.transcribe(
             audioPath: url.path,
-            decodeOptions: DecodingOptions(wordTimestamps: true, language: "zh")
+            decodeOptions: DecodingOptions(language: "zh", wordTimestamps: true)
         )
         let text = results.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { throw ModelFailure("Whisper 没有识别到语音内容。") }
