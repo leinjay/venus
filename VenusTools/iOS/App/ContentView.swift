@@ -9,8 +9,8 @@ final class AppNavigation: ObservableObject {
     @Published private(set) var returnTab: Int?
     private var returnAction: (() -> Void)?
     func openModels(onReturn: (() -> Void)? = nil) {
-        if selectedTab != 2 { returnTab = selectedTab; returnAction = onReturn }
-        settingsPath = [.models]; selectedTab = 2
+        if selectedTab != 3 { returnTab = selectedTab; returnAction = onReturn }
+        settingsPath = [.models]; selectedTab = 3
     }
     func returnFromSettings() {
         let tab = returnTab, action = returnAction
@@ -34,9 +34,12 @@ struct ContentView: View {
             RecordingView(store: recordingStore)
                 .tabItem { Label("录音", systemImage: "waveform") }
                 .tag(1)
+            RecordingAnalysisHistoryView(store: recordingStore)
+                .tabItem { Label("分析历史", systemImage: "text.bubble") }
+                .tag(2)
             SettingsView()
                 .tabItem { Label("设置", systemImage: "gearshape") }
-                .tag(2)
+                .tag(3)
         }
         .id(skin)
         .environmentObject(navigation)

@@ -56,6 +56,8 @@
 		BF1000000000000000000006 /* WatchRecordingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF1000000000000000000005 /* WatchRecordingView.swift */; };
 		BF1000000000000000000007 /* SpeakerDiarizationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF1000000000000000000006 /* SpeakerDiarizationService.swift */; };
 		B90000000000000000000003 = {isa = PBXBuildFile; productRef = A90000000000000000000004; };
+		BF1000000000000000000008 /* WhisperKitTranscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF1000000000000000000007 /* WhisperKitTranscriptionService.swift */; };
+		B90000000000000000000004 = {isa = PBXBuildFile; productRef = A90000000000000000000007; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -123,13 +125,14 @@
 		AF1000000000000000000004 /* WatchRecordingStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VenusTools/Tools/Recorder/Watch/WatchRecordingStore.swift"; sourceTree = SOURCE_ROOT; };
 		AF1000000000000000000005 /* WatchRecordingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VenusTools/Tools/Recorder/Watch/WatchRecordingView.swift"; sourceTree = SOURCE_ROOT; };
 		AF1000000000000000000006 /* SpeakerDiarizationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VenusTools/Tools/Recorder/iOS/SpeakerDiarizationService.swift"; sourceTree = SOURCE_ROOT; };
+		AF1000000000000000000007 /* WhisperKitTranscriptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VenusTools/Tools/Recorder/iOS/WhisperKitTranscriptionService.swift"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		E10000000000000000000002 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
-			files = (B10000000000000000000013 /* WatchConnectivity.framework in Frameworks */, B90000000000000000000001, B90000000000000000000002, B90000000000000000000003, );
+			files = (B10000000000000000000013 /* WatchConnectivity.framework in Frameworks */, B90000000000000000000001, B90000000000000000000002, B90000000000000000000003, B90000000000000000000004, );
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		E10000000000000000000006 /* Frameworks */ = {
@@ -162,6 +165,7 @@
 				AF1000000000000000000004 /* WatchRecordingStore.swift */,
 				AF1000000000000000000005 /* WatchRecordingView.swift */,
 				AF1000000000000000000006 /* SpeakerDiarizationService.swift */,
+				AF1000000000000000000007 /* WhisperKitTranscriptionService.swift */,
 			);
 			name = Recorder;
 			sourceTree = "<group>";
@@ -289,7 +293,7 @@
 			);
 			buildRules = ();
 			dependencies = (A50000000000000000000001 /* PBXTargetDependency */, );
-			packageProductDependencies = (A90000000000000000000002, A90000000000000000000003, A90000000000000000000004, );
+			packageProductDependencies = (A90000000000000000000002, A90000000000000000000003, A90000000000000000000004, A90000000000000000000007, );
 			name = VenusTools;
 			productName = VenusTools;
 			productReference = A10000000000000000000012 /* VenusTools.app */;
@@ -331,7 +335,7 @@
 			knownRegions = (en, Base, "zh-Hans", );
 			mainGroup = A20000000000000000000001;
 			productRefGroup = A20000000000000000000002 /* Products */;
-			packageReferences = (A90000000000000000000001, A90000000000000000000005, );
+			packageReferences = (A90000000000000000000001, A90000000000000000000005, A90000000000000000000006, );
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -380,6 +384,7 @@
 				BF1000000000000000000003 /* RecordingStore.swift in Sources */,
 				BF1000000000000000000007 /* SpeakerDiarizationService.swift in Sources */,
 				BF1000000000000000000004 /* RecordingView.swift in Sources */,
+				BF1000000000000000000008 /* WhisperKitTranscriptionService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -566,11 +571,13 @@
 /* Begin XCRemoteSwiftPackageReference section */
         A90000000000000000000001 = {isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/ml-explore/mlx-swift-examples"; requirement = {kind = exactVersion; version = 2.25.9; }; };
         A90000000000000000000005 = {isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/k2-fsa/sherpa-onnx"; requirement = {kind = exactVersion; version = 2.0.1; }; };
+        A90000000000000000000006 = {isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/argmaxinc/argmax-oss-swift.git"; requirement = {kind = exactVersion; version = 1.1.1; }; };
 /* End XCRemoteSwiftPackageReference section */
 /* Begin XCSwiftPackageProductDependency section */
         A90000000000000000000002 = {isa = XCSwiftPackageProductDependency; package = A90000000000000000000001; productName = MLXLLM; };
         A90000000000000000000003 = {isa = XCSwiftPackageProductDependency; package = A90000000000000000000001; productName = MLXLMCommon; };
         A90000000000000000000004 = {isa = XCSwiftPackageProductDependency; package = A90000000000000000000005; productName = sherpa-onnx; };
+        A90000000000000000000007 = {isa = XCSwiftPackageProductDependency; package = A90000000000000000000006; productName = WhisperKit; };
 /* End XCSwiftPackageProductDependency section */
 
 	};

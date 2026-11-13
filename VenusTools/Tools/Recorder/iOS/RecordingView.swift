@@ -42,7 +42,7 @@ struct RecordingView: View {
                 .padding(.bottom, 36)
             }
             .background(AppTheme.canvas.ignoresSafeArea())
-            .navigationTitle("录音分析")
+            .navigationTitle("录音")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -148,11 +148,70 @@ struct RecordingView: View {
     }
 }
 
+struct RecordingAnalysisHistoryView: View {
+    @ObservedObject var store: RecordingStore
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 12) {
+                BrandHeader(eyebrow: "VOICE LIBRARY", title: "分析历史", subtitle: "保存的转写与分析都在这里。")
+                    .padding(.horizontal, 20)
+                    .padding(.top, 14)
+                if store.analysisHistory.isEmpty {
+                    ContentUnavailableView("还没有分析历史", systemImage: "text.bubble", description: Text("在录音详情里完成分析并保存后，会出现在这里。"))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List {
+                        ForEach(store.analysisHistory) { archive in
+                            NavigationLink {
+                                RecordingAnalysisArchiveDetail(archive: archive)
+                            } label: {
+                                analysisHistoryRow(archive)
+                            }
+                            .listRowBackground(AppTheme.surface)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) { store.deleteAnalysisArchive(archive.id) } label: {
+                                    Label("删除", systemImage: "trash")
+                                }
+                            }
+                        }
+                    }
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
+                    .padding(.horizontal, 8)
+                }
+            }
+            .background(AppTheme.canvas.ignoresSafeArea())
+            .navigationTitle("分析历史")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .alert("录音提示", isPresented: Binding(get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })) {
+            Button("好", role: .cancel) { store.errorMessage = nil }
+        } message: { Text(store.errorMessage ?? "") }
+    }
+
+    private func analysisHistoryRow(_ archive: RecordingAnalysisArchive) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 8) {
+                Image(systemName: "text.bubble.fill").foregroundStyle(AppTheme.pine)
+                Text(archive.title).font(.system(size: 15, weight: .semibold)).foregroundStyle(AppTheme.ink).lineLimit(1)
+                Spacer(minLength: 0)
+                Text(archive.savedAt.formatted(date: .abbreviated, time: .shortened))
+                    .font(.caption2).foregroundStyle(AppTheme.secondary)
+            }
+            Text(archive.analysisPreview).font(.caption).foregroundStyle(AppTheme.secondary).lineLimit(2)
+            Text("转写 \(archive.transcript.count) 字 · \(RecordingView.timeText(Int(archive.duration)))")
+                .font(.caption2).foregroundStyle(AppTheme.secondary)
+        }
+        .padding(.vertical, 7)
+    }
+}
+
 private struct RecordingModelsView: View {
     var body: some View {
         List {
             Section {
-                Text("实时字幕优先使用 iPhone 本机的普通话离线识别。只有你点击转写或分析时，所选模型才会接收对应录音或文字。")
+                Text("实时字幕始终使用 Apple Speech。录音详情默认用 Apple Speech 本机转写；也可选 Whisper 本机模型，或主动配置并授权外部转写服务。分析服务只接收转写文字。")
                     .font(.caption).foregroundStyle(AppTheme.secondary)
                 ModelBindingPanel(purpose: .recordingTranscription)
                 ModelBindingPanel(purpose: .recordingSummary)
@@ -165,78 +224,193 @@ private struct RecordingModelsView: View {
     }
 }
 
+private struct RecordingTranscriptionModelPicker: View {
+    @Binding var selection: RecordingTranscriptionModel
+    @ObservedObject private var registry = ModelRegistry.shared
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        List {
+            Section("本机识别") {
+                ForEach(RecordingTranscriptionModel.allCases.filter { $0 != .configuredService }) { model in
+                    Button { selection = model; dismiss() } label: {
+                        modelRow(model)
+                    }
+                    .listRowBackground(AppTheme.surface)
+                }
+            }
+            Section("自定义服务") {
+                if registry.selected(.recordingTranscription) != nil {
+                    Button { selection = .configuredService; dismiss() } label: {
+                        modelRow(.configuredService)
+                    }
+                    .listRowBackground(AppTheme.surface)
+                }
+                NavigationLink { RecordingModelsView() } label: {
+                    Label("管理自定义识别服务", systemImage: "slider.horizontal.3")
+                        .foregroundStyle(AppTheme.pine)
+                }
+                .listRowBackground(AppTheme.surface)
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(AppTheme.canvas)
+        .navigationTitle("选择转写模型")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } }
+        }
+    }
+
+    private func modelRow(_ model: RecordingTranscriptionModel) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: selection == model ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(selection == model ? AppTheme.pine : AppTheme.secondary)
+                .font(.system(size: 20))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(model.title).font(.subheadline.weight(.semibold)).foregroundStyle(AppTheme.ink)
+                Text(model.detail).font(.caption).foregroundStyle(AppTheme.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .contentShape(Rectangle())
+    }
+}
+
 private struct RecordingDetailView: View {
     @ObservedObject var store: RecordingStore
     let recordingID: UUID
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var modelRegistry = ModelRegistry.shared
+    @AppStorage("recording.transcription.model") private var selectedModelRawValue = RecordingTranscriptionModel.appleSpeech.rawValue
     @State private var confirmDelete = false
-    @State private var showingTranscript = false
-    @State private var selectedTab: RecordingDetailTab = .transcript
+    @State private var showingTranscript = true
+    @State private var showingModelPicker = false
+    @State private var analysisMessages: [RecordingAnalysisMessage] = []
+    @State private var analysisDraft = ""
+    @State private var isAnalyzing = false
+    @State private var analysisSaved = false
+    @State private var analysisError: String?
     @State private var isScrubbing = false
     @State private var scrubberValue: TimeInterval = 0
 
     private var item: VoiceRecording? { store.recording(recordingID) }
     private var isWorking: Bool { store.workingID == recordingID }
+    private var selectedModel: RecordingTranscriptionModel {
+        RecordingTranscriptionModel(rawValue: selectedModelRawValue) ?? .appleSpeech
+    }
+    private var selectedModelBinding: Binding<RecordingTranscriptionModel> {
+        Binding(
+            get: { RecordingTranscriptionModel(rawValue: selectedModelRawValue) ?? .appleSpeech },
+            set: { selectedModelRawValue = $0.rawValue }
+        )
+    }
+    private var activeLineID: UUID? {
+        guard store.playingID == recordingID, let item else { return nil }
+        return timelineLines(for: item).first(where: { store.playbackCurrentTime >= $0.start && store.playbackCurrentTime <= max($0.end, $0.start + 0.15) })?.id
+    }
 
     var body: some View {
-        ScrollView {
-            if let item {
-                VStack(alignment: .leading, spacing: 18) {
-                    HStack(alignment: .top, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            AccentLabel(title: item.origin == .appleWatch ? "Apple Watch" : "iPhone")
-                            Text(item.title).font(.system(size: 26, weight: .semibold, design: .serif)).foregroundStyle(AppTheme.ink)
-                            Text("\(item.createdAt.formatted(date: .complete, time: .shortened)) · \(RecordingView.timeText(Int(item.duration)))")
-                                .font(.caption).foregroundStyle(AppTheme.secondary)
-                            if !item.supplementalSegments.isEmpty {
-                                Text("含 \(item.supplementalSegments.count) 段补录")
-                                    .font(.caption).foregroundStyle(AppTheme.pine)
+        ScrollViewReader { proxy in
+            ScrollView {
+                if let item {
+                    VStack(alignment: .leading, spacing: 18) {
+                        HStack(alignment: .top, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                AccentLabel(title: item.origin == .appleWatch ? "Apple Watch" : "iPhone")
+                                Text(item.title).font(.system(size: 26, weight: .semibold, design: .serif)).foregroundStyle(AppTheme.ink)
+                                Text("\(item.createdAt.formatted(date: .complete, time: .shortened)) · \(RecordingView.timeText(Int(item.duration)))")
+                                    .font(.caption).foregroundStyle(AppTheme.secondary)
+                                if !item.supplementalSegments.isEmpty {
+                                    Text("含 \(item.supplementalSegments.count) 段补录")
+                                        .font(.caption).foregroundStyle(AppTheme.pine)
+                                }
                             }
+                            Spacer(minLength: 0)
+                            Button(role: .destructive) { confirmDelete = true } label: {
+                                Image(systemName: "trash").frame(width: 40, height: 40).foregroundStyle(AppTheme.terracotta)
+                                    .background(AppTheme.terracotta.opacity(0.11), in: Circle())
+                            }.accessibilityLabel("删除录音")
                         }
-                        Spacer(minLength: 0)
-                        Button(role: .destructive) { confirmDelete = true } label: {
-                            Image(systemName: "trash").frame(width: 40, height: 40).foregroundStyle(AppTheme.terracotta)
-                                .background(AppTheme.terracotta.opacity(0.11), in: Circle())
-                        }.accessibilityLabel("删除录音")
-                    }
 
-                    Button {
-                        store.prepareSupplement(for: item.id)
-                        dismiss()
-                    } label: {
-                        Label("补录到这条录音", systemImage: "waveform.badge.plus")
-                            .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity).padding(.vertical, 12)
-                            .foregroundStyle(AppTheme.pine).background(AppTheme.sage, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
+                        Button {
+                            if showingTranscript {
+                                showingTranscript = false
+                                if analysisMessages.isEmpty {
+                                    if !item.summary.isEmpty {
+                                        analysisMessages = [RecordingAnalysisMessage(role: .assistant, text: item.summary)]
+                                    } else {
+                                        sendAnalysisPrompt("请分析这段录音，概括主要内容、关键主题、决定和待办。", for: item)
+                                    }
+                                }
+                            } else {
+                                showingTranscript = true
+                            }
+                        } label: {
+                            Label(showingTranscript ? "录音分析" : "查看转写", systemImage: showingTranscript ? "bubble.left.and.bubble.right" : "text.alignleft")
+                                .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity).padding(.vertical, 12)
+                                .foregroundStyle(AppTheme.pine).background(AppTheme.sage, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(showingTranscript && (item.transcriptForAnalysis.isEmpty || item.hasUntranscribedSupplement || isWorking))
 
-                    Picker("录音内容", selection: $selectedTab) {
-                        ForEach(RecordingDetailTab.allCases) { tab in
-                            Text(tab.title).tag(tab)
+                        if showingTranscript {
+                            transcriptPanel(item)
+                        } else {
+                            analysisPanel(item)
                         }
                     }
-                    .pickerStyle(.segmented)
-                    .tint(AppTheme.pine)
-
-                    if selectedTab == .transcript {
-                        transcriptPanel(item)
-                    } else {
-                        analysisPanel(item)
+                    .padding(20).padding(.bottom, 24)
+                } else {
+                    ContentUnavailableView("录音已删除", systemImage: "waveform.slash", description: Text("返回录音列表查看其他内容。"))
+                }
+            }
+            .background(AppTheme.canvas.ignoresSafeArea())
+            .onChange(of: activeLineID) { _, id in
+                guard showingTranscript, let id else { return }
+                withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) }
+            }
+            .onChange(of: analysisMessages.last?.id) { _, id in
+                guard !showingTranscript, let id else { return }
+                proxy.scrollTo(id, anchor: .bottom)
+            }
+            .onChange(of: analysisMessages.last?.text) { _, _ in
+                guard !showingTranscript, let id = analysisMessages.last?.id else { return }
+                proxy.scrollTo(id, anchor: .bottom)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if let item {
+                    VStack(spacing: 0) {
+                        if !showingTranscript { analysisComposer(item) }
+                        playbackPanel(item)
                     }
                 }
-                .padding(20).padding(.bottom, 24)
-            } else {
-                ContentUnavailableView("录音已删除", systemImage: "waveform.slash", description: Text("返回录音列表查看其他内容。"))
             }
-        }
-        .background(AppTheme.canvas.ignoresSafeArea())
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if let item { playbackPanel(item) }
         }
         .onAppear { if let item { store.preparePlayback(item) } }
         .onChange(of: item?.audioFileNames) { _, _ in if let item { store.preparePlayback(item) } }
+        .task(id: recordingID) {
+            while store.workingID == recordingID && !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+            guard !Task.isCancelled, let item = store.recording(recordingID), shouldAutoTranscribe(item) else { return }
+            await store.transcribe(item, model: selectedModel)
+        }
         .navigationTitle("录音详情")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button { store.prepareSupplement(for: recordingID); dismiss() } label: {
+                        Label("补录到这条录音", systemImage: "waveform.badge.plus")
+                    }
+                    Button(role: .destructive) { confirmDelete = true } label: {
+                        Label("删除录音", systemImage: "trash")
+                    }
+                } label: { Image(systemName: "ellipsis.circle") }
+                .accessibilityLabel("录音操作")
+            }
+        }
         .confirmationDialog("删除这条录音？", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("删除录音", role: .destructive) { if let item { store.delete(item) } }
             Button("取消", role: .cancel) {}
@@ -244,88 +418,338 @@ private struct RecordingDetailView: View {
         .alert("录音提示", isPresented: Binding(get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })) {
             Button("好", role: .cancel) { store.errorMessage = nil }
         } message: { Text(store.errorMessage ?? "") }
-        .sheet(isPresented: $showingTranscript) {
-            if let item { RecordingTranscriptSheet(text: item.speakerTranscript ?? item.transcript) }
+        .alert("分析提示", isPresented: Binding(get: { analysisError != nil }, set: { if !$0 { analysisError = nil } })) {
+            Button("好", role: .cancel) { analysisError = nil }
+        } message: { Text(analysisError ?? "") }
+        .sheet(isPresented: $showingModelPicker) {
+            NavigationStack {
+                RecordingTranscriptionModelPicker(selection: selectedModelBinding)
+            }
         }
     }
 
     private func transcriptPanel(_ item: VoiceRecording) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("转写文字").font(.system(size: 18, weight: .semibold, design: .serif)).foregroundStyle(AppTheme.ink)
-                Text("本机离线识别或已配置的转写模型")
-                    .font(.caption).foregroundStyle(AppTheme.secondary)
-            }
+        VStack(alignment: .leading, spacing: 16) {
+            Text("转写文字")
+                .font(.system(size: 20, weight: .semibold, design: .serif)).foregroundStyle(AppTheme.ink)
+
             HStack(spacing: 10) {
-                Spacer(minLength: 0)
-                HStack(spacing: 10) {
-                    Button(isWorking ? "处理中…" : (item.hasUntranscribedSupplement ? "转写补录" : (item.transcript.isEmpty ? "开始转写" : "重新转写"))) {
-                        Task { await store.transcribe(item) }
-                    }
-                    .font(.caption.weight(.semibold)).disabled(isWorking)
-                    Button(item.speakerTranscript == nil ? "区分说话人" : "重新区分") {
-                        Task { await store.distinguishSpeakers(item) }
-                    }
-                    .font(.caption.weight(.semibold)).disabled(isWorking)
+                Button {
+                    Task { await store.transcribe(item, model: selectedModel) }
+                } label: {
+                    Label(isWorking ? "处理中…" : "重新生成", systemImage: "arrow.clockwise")
+                        .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity).padding(.vertical, 11)
+                        .foregroundStyle(.white).background(AppTheme.pine, in: Capsule())
+                }
+                .disabled(isWorking)
+                Button { showingModelPicker = true } label: {
+                    Label("选择模型", systemImage: "slider.horizontal.3")
+                        .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity).padding(.vertical, 11)
+                        .foregroundStyle(AppTheme.pine).background(AppTheme.sage, in: Capsule())
                 }
             }
             .buttonStyle(.plain)
+
             if isWorking, !store.workingMessage.isEmpty {
                 HStack(spacing: 8) {
                     ProgressView().tint(AppTheme.pine)
                     Text(store.workingMessage).font(.caption).foregroundStyle(AppTheme.secondary)
                 }
             }
-            if item.transcriptForAnalysis.isEmpty {
-                Text("还没有转写文字。开始转写后，全文会显示在这里。")
-                    .font(.subheadline).foregroundStyle(AppTheme.secondary)
-            } else {
-                Button { showingTranscript = true } label: {
-                    VStack(alignment: .leading, spacing: 8) {
-                        if let count = item.speakerCount {
-                            Label("已区分 \(count) 位说话人", systemImage: "person.2.wave.2")
+
+            Divider().overlay(AppTheme.line)
+            VStack(alignment: .leading, spacing: 10) {
+                Text("概览").font(.system(size: 18, weight: .semibold, design: .serif)).foregroundStyle(AppTheme.ink)
+                currentModelOverview
+                Text("说话人分离和声线估计在本机完成；首次使用会下载约 41 MB 模型。")
+                    .font(.caption).foregroundStyle(AppTheme.secondary)
+                if item.speakerProfiles.isEmpty {
+                    if let count = item.speakerCount {
+                        Text("已区分 \(count) 位说话人；重新分析可生成讲话占比和声线估计。")
+                            .font(.caption).foregroundStyle(AppTheme.secondary)
+                    } else {
+                        Text("尚未区分说话人。生成本机时间轴后，可查看人数、讲话占比和声线估计。")
+                            .font(.caption).foregroundStyle(AppTheme.secondary)
+                    }
+                    if !item.transcript.isEmpty {
+                        Button {
+                            Task { await store.distinguishSpeakers(item) }
+                        } label: {
+                            Label("区分说话人并生成时间轴", systemImage: "person.2.wave.2")
                                 .font(.caption.weight(.semibold)).foregroundStyle(AppTheme.pine)
                         }
+                        .disabled(isWorking)
+                    }
+                } else {
+                    Text("检测到 \(item.speakerProfiles.count) 位说话人")
+                        .font(.subheadline.weight(.semibold)).foregroundStyle(AppTheme.ink)
+                    let totalSpeech = item.speakerProfiles.reduce(0) { $0 + $1.speechDuration }
+                    ForEach(item.speakerProfiles) { profile in
+                        let share = totalSpeech > 0 ? profile.speechDuration / totalSpeech : 0
+                        HStack(spacing: 8) {
+                            Text(profile.label).font(.subheadline.weight(.semibold)).foregroundStyle(AppTheme.pine).frame(width: 54, alignment: .leading)
+                            GeometryReader { geometry in
+                                ZStack(alignment: .leading) {
+                                    Capsule().fill(AppTheme.line)
+                                    Capsule().fill(AppTheme.pine).frame(width: geometry.size.width * CGFloat(share))
+                                }
+                            }
+                            .frame(height: 5)
+                            Text("\(Int((share * 100).rounded()))% · \(playerTimeText(profile.speechDuration))")
+                                .font(.caption.monospacedDigit()).foregroundStyle(AppTheme.secondary)
+                            Text(profile.voiceEstimate.title)
+                                .font(.caption2.weight(.medium)).foregroundStyle(AppTheme.secondary)
+                        }
+                    }
+                    Text("声线按本机音高范围粗略估计，不代表说话人的真实性别。")
+                        .font(.caption2).foregroundStyle(AppTheme.secondary)
+                    Button {
+                        Task { await store.distinguishSpeakers(item) }
+                    } label: {
+                        Label("重新区分说话人", systemImage: "arrow.clockwise")
+                            .font(.caption.weight(.semibold)).foregroundStyle(AppTheme.pine)
+                    }
+                    .disabled(isWorking)
+                }
+            }
+
+            Divider().overlay(AppTheme.line)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("具体转写").font(.system(size: 18, weight: .semibold, design: .serif)).foregroundStyle(AppTheme.ink)
+                if item.transcriptLines.isEmpty, item.speakerTranscript == nil, !item.transcript.isEmpty,
+                   selectedModel == .configuredService {
+                    Text("自定义服务没有提供时间戳。生成说话人时间轴后，可逐句点击定位播放。")
+                        .font(.caption).foregroundStyle(AppTheme.secondary)
+                }
+                if item.transcriptForAnalysis.isEmpty {
+                    Text("还没有转写文字。开始转写后，全文会显示在这里。")
+                        .font(.subheadline).foregroundStyle(AppTheme.secondary)
+                } else {
+                    let lines = timelineLines(for: item)
+                    if lines.isEmpty {
                         Text(item.speakerTranscript ?? item.transcript)
                             .font(.system(size: 15)).foregroundStyle(AppTheme.ink)
-                            .lineLimit(10).frame(maxWidth: .infinity, alignment: .leading)
-                        Label("点按查看全文", systemImage: "arrow.up.left.and.arrow.down.right")
-                            .font(.caption).foregroundStyle(AppTheme.pine)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
+                            .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
+                    } else {
+                        ForEach(lines) { line in
+                            Button {
+                                store.play(item, from: line.start)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 7) {
+                                    HStack(alignment: .top, spacing: 9) {
+                                        Text(playerTimeText(line.start))
+                                            .font(.caption2.monospacedDigit().weight(.medium)).foregroundStyle(AppTheme.pine)
+                                            .frame(width: 42, alignment: .leading)
+                                        Text("\(speakerLabel(line.speakerID, item: item))：\(line.text)")
+                                            .font(.system(size: 15)).foregroundStyle(AppTheme.ink)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                    GeometryReader { geometry in
+                                        let trackWidth = geometry.size.width
+                                        let duration = max(max(item.duration, store.playbackDuration), 0.1)
+                                        let start = min(trackWidth, trackWidth * CGFloat(line.start / duration))
+                                        let width = max(5, min(trackWidth - start, trackWidth * CGFloat(max(0.08, line.end - line.start) / duration)))
+                                        ZStack(alignment: .leading) {
+                                            Capsule().fill(AppTheme.line)
+                                            Capsule().fill(activeLineID == line.id ? AppTheme.terracotta : AppTheme.pine)
+                                                .frame(width: width).offset(x: start)
+                                            if store.playingID == item.id {
+                                                Capsule().fill(AppTheme.terracotta)
+                                                    .frame(width: 2, height: 8)
+                                                    .offset(x: min(trackWidth - 2, max(0, trackWidth * CGFloat(store.playbackCurrentTime / duration))))
+                                            }
+                                        }
+                                    }
+                                    .frame(height: 3).padding(.leading, 51)
+                                }
+                                .padding(.vertical, 8)
+                                .contentShape(Rectangle())
+                                .background(activeLineID == line.id ? AppTheme.sage.opacity(0.45) : .clear, in: RoundedRectangle(cornerRadius: 10))
+                            }
+                            .buttonStyle(.plain)
+                            .id(line.id)
+                            Divider().overlay(AppTheme.line.opacity(0.7))
+                        }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
             }
-            Label("人数由模型自动估计；录音后在本机识别，首次联网下载约 41 MB，音频不会上传。", systemImage: "lock.shield")
-                .font(.caption2).foregroundStyle(AppTheme.secondary)
         }
-        .frame(maxWidth: .infinity, alignment: .leading).surfaceCard()
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var currentModelOverview: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label(selectedModel.title, systemImage: selectedModel == .configuredService ? "cloud" : "iphone")
+                .font(.subheadline.weight(.semibold)).foregroundStyle(AppTheme.pine)
+            Text(selectedModel.detail).font(.caption).foregroundStyle(AppTheme.secondary)
+            if selectedModel == .configuredService, let config = modelRegistry.selected(.recordingTranscription) {
+                Text("\(config.provider) · \(config.modelID) · \(config.execution.title)")
+                    .font(.caption).foregroundStyle(AppTheme.secondary)
+            }
+            Text(selectedModel == .configuredService
+                 ? "自定义服务负责音频识别；时间轴和说话人分析仍在本机完成。"
+                 : "实时字幕固定使用 Apple Speech；说话人分离和声线估计在本机完成。")
+                .font(.caption).foregroundStyle(AppTheme.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func timelineLines(for item: VoiceRecording) -> [RecordingTranscriptLine] {
+        if !item.transcriptLines.isEmpty { return item.transcriptLines }
+        guard let speakerTranscript = item.speakerTranscript else { return [] }
+        var result: [RecordingTranscriptLine] = []
+        for rawLine in speakerTranscript.components(separatedBy: .newlines) {
+            guard let close = rawLine.firstIndex(of: "]"), rawLine.first == "[" else { continue }
+            let timeText = String(rawLine[rawLine.index(after: rawLine.startIndex)..<close])
+            let parts = timeText.split(separator: ":").compactMap { Double($0) }
+            guard parts.count >= 2 else { continue }
+            let start = parts.count == 2 ? parts[0] * 60 + parts[1] : parts[0] * 3600 + parts[1] * 60 + parts[2]
+            let content = rawLine[rawLine.index(after: close)...].trimmingCharacters(in: .whitespaces)
+            guard let separator = content.firstIndex(where: { $0 == "：" || $0 == ":" }) else { continue }
+            let label = content[..<separator].trimmingCharacters(in: .whitespaces)
+            let text = content[content.index(after: separator)...].trimmingCharacters(in: .whitespaces)
+            let speakerID = label.range(of: "说话人 ") == nil ? nil : Int(label.filter(\.isNumber)).map { $0 - 1 }
+            let lineID = UUID(uuidString: String(format: "00000000-0000-0000-%04X-%012llX", result.count & 0xffff, UInt64(max(0, start * 1000))))!
+            result.append(RecordingTranscriptLine(id: lineID, start: start, end: start + 2, speakerID: speakerID, text: text))
+        }
+        for index in result.indices where index + 1 < result.count {
+            result[index].end = max(result[index].start + 0.2, result[index + 1].start)
+        }
+        return result
+    }
+
+    private func speakerLabel(_ id: Int?, item: VoiceRecording) -> String {
+        guard let id else { return "未区分" }
+        return item.speakerProfiles.first(where: { $0.id == id })?.label ?? "说话人 \(id + 1)"
     }
 
     private func analysisPanel(_ item: VoiceRecording) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("录音分析").font(.system(size: 18, weight: .semibold, design: .serif)).foregroundStyle(AppTheme.ink)
-                    Text("摘要、主题、决定与行动项")
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("录音分析").font(.system(size: 20, weight: .semibold, design: .serif)).foregroundStyle(AppTheme.ink)
+                    Text("围绕这段录音继续提问")
                         .font(.caption).foregroundStyle(AppTheme.secondary)
                 }
                 Spacer()
-                Button(isWorking ? "整理中…" : "生成分析") { Task { await store.analyze(item) } }
-                    .font(.caption.weight(.semibold)).disabled(isWorking || item.transcriptForAnalysis.isEmpty || item.hasUntranscribedSupplement)
+                NavigationLink { RecordingModelsView() } label: {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 14, weight: .semibold)).foregroundStyle(AppTheme.pine)
+                        .frame(width: 34, height: 34).background(AppTheme.sage, in: Circle())
+                }
+                .accessibilityLabel("设置分析模型")
+                Button {
+                    do {
+                        try store.saveAnalysisArchive(for: item, messages: analysisMessages)
+                        analysisSaved = true
+                    } catch { analysisError = error.localizedDescription }
+                } label: {
+                    Label(analysisSaved ? "已保存" : "保存此次转写和分析", systemImage: analysisSaved ? "checkmark" : "square.and.arrow.down")
+                        .font(.caption.weight(.semibold)).foregroundStyle(analysisSaved ? AppTheme.secondary : AppTheme.pine)
+                }
+                .disabled(analysisSaved || isAnalyzing || !analysisMessages.contains(where: { $0.role == .assistant && !$0.text.isEmpty }))
             }
-            if item.summary.isEmpty {
-                Text(isWorking && !store.workingMessage.isEmpty ? store.workingMessage : "完成转写后生成分析结果。")
+
+            if item.transcriptForAnalysis.isEmpty || item.hasUntranscribedSupplement {
+                Text("先完成这条录音及补录的转写，再开始分析。")
+                    .font(.subheadline).foregroundStyle(AppTheme.secondary)
+            } else if analysisMessages.isEmpty {
+                Text("正在准备对话…")
                     .font(.subheadline).foregroundStyle(AppTheme.secondary)
             } else {
-                Text(item.summary).font(.system(size: 15)).foregroundStyle(AppTheme.ink).textSelection(.enabled)
+                ForEach(analysisMessages) { message in
+                    analysisMessageRow(message)
+                        .id(message.id)
+                }
             }
-            NavigationLink("管理录音分析模型") { RecordingModelsView() }
-                .font(.caption)
         }
-        .frame(maxWidth: .infinity, alignment: .leading).surfaceCard()
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func analysisMessageRow(_ message: RecordingAnalysisMessage) -> some View {
+        HStack {
+            if message.role == .user { Spacer(minLength: 36) }
+            VStack(alignment: .leading, spacing: 5) {
+                Text(message.role == .user ? "你" : "录音助手")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(message.role == .user ? AppTheme.pine : AppTheme.secondary)
+                Text(message.text.isEmpty ? "正在组织回答…" : message.text)
+                    .font(.system(size: 15))
+                    .foregroundStyle(message.text.isEmpty ? AppTheme.secondary : AppTheme.ink)
+                    .textSelection(.enabled)
+            }
+            .padding(13)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(message.role == .user ? AppTheme.sage : AppTheme.surface,
+                        in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 17, style: .continuous)
+                    .stroke(message.role == .user ? .clear : AppTheme.line, lineWidth: 1)
+            }
+            if message.role == .assistant { Spacer(minLength: 36) }
+        }
+    }
+
+    private func analysisComposer(_ item: VoiceRecording) -> some View {
+        HStack(alignment: .bottom, spacing: 10) {
+            TextField("继续问这段录音…", text: $analysisDraft, axis: .vertical)
+                .lineLimit(1...4)
+                .font(.system(size: 15))
+                .padding(.horizontal, 13).padding(.vertical, 10)
+                .background(AppTheme.canvas, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+                .onSubmit { submitAnalysisDraft(for: item) }
+            Button { submitAnalysisDraft(for: item) } label: {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 15, weight: .bold)).foregroundStyle(.white)
+                    .frame(width: 38, height: 38).background(AppTheme.pine, in: Circle())
+            }
+            .disabled(isAnalyzing || analysisDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || item.transcriptForAnalysis.isEmpty || item.hasUntranscribedSupplement)
+            .opacity(isAnalyzing ? 0.6 : 1)
+        }
+        .padding(.horizontal, 15).padding(.top, 9).padding(.bottom, 8)
+        .background(AppTheme.surface)
+        .overlay(alignment: .top) { Rectangle().fill(AppTheme.line).frame(height: 1) }
+    }
+
+    private func submitAnalysisDraft(for item: VoiceRecording) {
+        let prompt = analysisDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !prompt.isEmpty else { return }
+        analysisDraft = ""
+        sendAnalysisPrompt(prompt, for: item)
+    }
+
+    private func sendAnalysisPrompt(_ prompt: String, for item: VoiceRecording) {
+        guard !isAnalyzing else { return }
+        let userMessage = RecordingAnalysisMessage(role: .user, text: prompt)
+        analysisMessages.append(userMessage)
+        let requestConversation = analysisMessages
+        let reply = RecordingAnalysisMessage(role: .assistant, text: "")
+        analysisMessages.append(reply)
+        isAnalyzing = true
+        analysisSaved = false
+        Task {
+            do {
+                let output = try await store.analyze(item, conversation: requestConversation, onProgress: { partial in
+                    guard let index = analysisMessages.firstIndex(where: { $0.id == reply.id }) else { return }
+                    analysisMessages[index].text = partial
+                })
+                if let index = analysisMessages.firstIndex(where: { $0.id == reply.id }) {
+                    analysisMessages[index].text = output
+                }
+            } catch {
+                analysisMessages.removeAll { $0.id == reply.id }
+                analysisError = error.localizedDescription
+            }
+            isAnalyzing = false
+        }
+    }
+
+    private func shouldAutoTranscribe(_ item: VoiceRecording) -> Bool {
+        if item.hasUntranscribedSupplement { return true }
+        let transcript = item.transcriptForAnalysis.trimmingCharacters(in: .whitespacesAndNewlines)
+        if transcript.isEmpty { return true }
+        return item.duration >= 45 && transcript.count <= 28
     }
 
     private func playbackPanel(_ item: VoiceRecording) -> some View {
@@ -387,36 +811,56 @@ private struct RecordingDetailView: View {
     }
 }
 
-private enum RecordingDetailTab: String, CaseIterable, Identifiable, Hashable {
-    case transcript
-    case analysis
-    var id: String { rawValue }
-    var title: String { self == .transcript ? "转写文字" : "录音分析" }
-}
-
-private struct RecordingTranscriptSheet: View {
-    let text: String
-    @Environment(\.dismiss) private var dismiss
+private struct RecordingAnalysisArchiveDetail: View {
+    let archive: RecordingAnalysisArchive
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                Text(text)
-                    .font(.system(size: 16))
-                    .foregroundStyle(AppTheme.ink)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-                    .padding(20)
-            }
-            .background(AppTheme.canvas.ignoresSafeArea())
-            .navigationTitle("转写全文")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") { dismiss() }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 7) {
+                    AccentLabel(title: "分析历史")
+                    Text(archive.title)
+                        .font(.system(size: 25, weight: .semibold, design: .serif)).foregroundStyle(AppTheme.ink)
+                    Text("\(archive.recordingCreatedAt.formatted(date: .complete, time: .shortened)) · \(RecordingView.timeText(Int(archive.duration))) · 保存于 \(archive.savedAt.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.caption).foregroundStyle(AppTheme.secondary)
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("转写内容").font(.system(size: 19, weight: .semibold, design: .serif)).foregroundStyle(AppTheme.ink)
+                    Text(archive.transcript)
+                        .font(.system(size: 15)).foregroundStyle(AppTheme.ink)
+                        .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
+                        .padding(14)
+                        .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+                        .overlay { RoundedRectangle(cornerRadius: 17, style: .continuous).stroke(AppTheme.line, lineWidth: 1) }
+                }
+
+                Divider().overlay(AppTheme.line)
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("分析对话").font(.system(size: 19, weight: .semibold, design: .serif)).foregroundStyle(AppTheme.ink)
+                    ForEach(archive.messages) { message in
+                        HStack {
+                            if message.role == .user { Spacer(minLength: 36) }
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(message.role == .user ? "你" : "录音助手")
+                                    .font(.caption2.weight(.semibold)).foregroundStyle(AppTheme.secondary)
+                                Text(message.text).font(.system(size: 15)).foregroundStyle(AppTheme.ink).textSelection(.enabled)
+                            }
+                            .padding(13)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(message.role == .user ? AppTheme.sage : AppTheme.surface,
+                                        in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+                            .overlay { RoundedRectangle(cornerRadius: 17, style: .continuous).stroke(AppTheme.line, lineWidth: message.role == .user ? 0 : 1) }
+                            if message.role == .assistant { Spacer(minLength: 36) }
+                        }
+                    }
                 }
             }
+            .padding(20).padding(.bottom, 36)
         }
-        .presentationDetents([.large])
+        .background(AppTheme.canvas.ignoresSafeArea())
+        .navigationTitle("分析历史")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }

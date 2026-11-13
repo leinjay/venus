@@ -17,6 +17,8 @@ struct TimestampedSpeechTranscript: Sendable {
 struct SpeakerDiarizationOutput: Sendable {
     let transcript: String
     let speakerCount: Int
+    let lines: [RecordingTranscriptLine]
+    let speakerProfiles: [RecordingSpeakerProfile]
 }
 
 enum SpeakerDiarizationService {
@@ -119,6 +121,12 @@ enum SpeakerDiarizationService {
         var text: String
     }
 
+    private struct SpeakerInterval {
+        var start: TimeInterval
+        var end: TimeInterval
+        var speaker: Int
+    }
+
     private static func runDiarization(
         audioURLs: [URL],
         transcripts: [TimestampedSpeechTranscript],
@@ -168,7 +176,10 @@ enum SpeakerDiarizationService {
         }
         guard diarizer.sampleRate == sampleRate else { throw ModelFailure("说话人模型采样率不匹配。") }
         let speakerSegments = diarizer.process(samples: samples)
-        let speakers = Set(speakerSegments.map(\.speaker))
+        let intervals = speakerSegments.map {
+            SpeakerInterval(start: TimeInterval($0.start), end: TimeInterval($0.end), speaker: Int($0.speaker))
+        }
+        let speakers = Set(intervals.map(\.speaker))
 
         var recognized: [TimedSpeakerText] = []
         for clipIndex in transcripts.indices {
@@ -178,15 +189,13 @@ enum SpeakerDiarizationService {
                 let paddedStart = clipOffsets[clipIndex] + max(0, word.start)
                 let paddedEnd = paddedStart + max(0.05, word.duration)
                 let midpoint = (paddedStart + paddedEnd) / 2
-                let closest = speakerSegments.max { lhs, rhs in
+                let closest = intervals.max { lhs, rhs in
                     overlap(lhs.start, lhs.end, paddedStart, paddedEnd) < overlap(rhs.start, rhs.end, paddedStart, paddedEnd)
                 }
                 var speaker = -1
                 if let closest {
                     let intersection = overlap(closest.start, closest.end, paddedStart, paddedEnd)
-                    let closestStart = TimeInterval(closest.start)
-                    let closestEnd = TimeInterval(closest.end)
-                    let gap = midpoint < closestStart ? closestStart - midpoint : (midpoint > closestEnd ? midpoint - closestEnd : 0)
+                    let gap = midpoint < closest.start ? closest.start - midpoint : (midpoint > closest.end ? midpoint - closest.end : 0)
                     if intersection > 0 || gap <= 0.45 { speaker = closest.speaker }
                 }
                 let unpaddedStart = max(0, paddedStart - Double(clipIndex) * interClipSilence)
@@ -208,11 +217,24 @@ enum SpeakerDiarizationService {
                 turns.append(word)
             }
         }
+        let profiles = speakers.sorted().map { speaker in
+            let duration = intervals.filter { $0.speaker == speaker }.reduce(0.0) { $0 + max(0, $1.end - $1.start) }
+            return RecordingSpeakerProfile(
+                id: speaker,
+                speechDuration: duration,
+                voiceEstimate: estimateVoice(in: samples, intervals: intervals, speaker: speaker)
+            )
+        }
+        let profileByID = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0) })
+        let lines = turns.map { turn in
+            RecordingTranscriptLine(start: turn.start, end: turn.end, speakerID: turn.speaker >= 0 ? turn.speaker : nil, text: turn.text)
+        }
         let formatted = turns.map { turn in
-            "[\(timeLabel(turn.start))] \(turn.speaker < 0 ? "未区分" : "说话人 \(turn.speaker + 1)")：\(turn.text)"
+            let speakerLabel = turn.speaker < 0 ? "未区分" : (profileByID[turn.speaker]?.label ?? "说话人 \(turn.speaker + 1)")
+            return "[\(timeLabel(turn.start))] \(speakerLabel)：\(turn.text)"
         }.joined(separator: "\n")
         guard !formatted.isEmpty else { throw ModelFailure("没有生成说话人转写结果。") }
-        return SpeakerDiarizationOutput(transcript: formatted, speakerCount: speakers.count)
+        return SpeakerDiarizationOutput(transcript: formatted, speakerCount: speakers.count, lines: lines, speakerProfiles: profiles)
     }
 
     private static func duration(of url: URL) throws -> TimeInterval {
@@ -221,8 +243,60 @@ enum SpeakerDiarizationService {
         return Double(file.length) / file.processingFormat.sampleRate
     }
 
-    private static func overlap(_ lhsStart: Float, _ lhsEnd: Float, _ rhsStart: TimeInterval, _ rhsEnd: TimeInterval) -> TimeInterval {
-        max(0, min(TimeInterval(lhsEnd), rhsEnd) - max(TimeInterval(lhsStart), rhsStart))
+    private static func overlap(_ lhsStart: TimeInterval, _ lhsEnd: TimeInterval, _ rhsStart: TimeInterval, _ rhsEnd: TimeInterval) -> TimeInterval {
+        max(0, min(lhsEnd, rhsEnd) - max(lhsStart, rhsStart))
+    }
+
+    private static func estimateVoice(in samples: [Float], intervals: [SpeakerInterval], speaker: Int) -> RecordingVoiceEstimate {
+        let frameSize = 512
+        let frameDuration = Double(frameSize) / Double(sampleRate)
+        var pitches: [Double] = []
+        for interval in intervals where interval.speaker == speaker && interval.end - interval.start >= frameDuration {
+            let available = max(1, Int((interval.end - interval.start) / 0.7))
+            let sampleCount = min(3, available)
+            for index in 0..<sampleCount {
+                let center = interval.start + (Double(index + 1) / Double(sampleCount + 1)) * (interval.end - interval.start)
+                let start = max(0, Int((center - frameDuration / 2) * Double(sampleRate)))
+                guard start + frameSize <= samples.count else { continue }
+                if let pitch = pitch(in: samples[start..<(start + frameSize)]) { pitches.append(pitch) }
+                if pitches.count >= 60 { break }
+            }
+            if pitches.count >= 60 { break }
+        }
+        guard !pitches.isEmpty else { return .unknown }
+        pitches.sort()
+        let median = pitches[pitches.count / 2]
+        if median < 150 { return .masculine }
+        if median > 185 { return .feminine }
+        return .unknown
+    }
+
+    private static func pitch(in frame: ArraySlice<Float>) -> Double? {
+        let values = Array(frame)
+        let mean = values.reduce(0.0) { $0 + Double($1) } / Double(values.count)
+        let centered = values.map { Double($0) - mean }
+        let energy = centered.reduce(0.0) { $0 + $1 * $1 }
+        guard energy > 0.0001 else { return nil }
+        let minimumLag = sampleRate / 350
+        let maximumLag = min(sampleRate / 70, centered.count / 2)
+        var bestLag = 0
+        var bestScore = 0.0
+        for lag in minimumLag...maximumLag {
+            var product = 0.0
+            var leftEnergy = 0.0
+            var rightEnergy = 0.0
+            for index in 0..<(centered.count - lag) {
+                let left = centered[index]
+                let right = centered[index + lag]
+                product += left * right
+                leftEnergy += left * left
+                rightEnergy += right * right
+            }
+            let score = product / sqrt(max(0.0000001, leftEnergy * rightEnergy))
+            if score > bestScore { bestScore = score; bestLag = lag }
+        }
+        guard bestLag > 0, bestScore >= 0.4 else { return nil }
+        return Double(sampleRate) / Double(bestLag)
     }
 
     private static func timeLabel(_ time: TimeInterval) -> String {
