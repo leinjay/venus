@@ -66,14 +66,26 @@ final class WhisperModelDownloads: ObservableObject {
             .appendingPathComponent(model.rawValue, isDirectory: true)
     }
 
-    func tokenizerFolder(for model: RecordingTranscriptionModel) -> URL { root(for: model) }
+    func tokenizerFolder(for model: RecordingTranscriptionModel) -> URL {
+        if let folder = modelFolder(for: model), folder.path.hasPrefix(root(for: model).path + "/") {
+            return root(for: model)
+        }
+        return FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("huggingface", isDirectory: true)
+    }
 
     func modelFolder(for model: RecordingTranscriptionModel) -> URL? {
         let root = root(for: model)
         let marker = root.appendingPathComponent("model-path.txt")
-        guard let relative = try? String(contentsOf: marker, encoding: .utf8),
-              !relative.isEmpty, !relative.contains(".."), !relative.hasPrefix("/") else { return nil }
-        let folder = root.appendingPathComponent(relative, isDirectory: true)
+        var folder: URL?
+        if let relative = try? String(contentsOf: marker, encoding: .utf8),
+           !relative.isEmpty, !relative.contains(".."), !relative.hasPrefix("/") {
+            folder = root.appendingPathComponent(relative, isDirectory: true)
+        } else if let name = model.whisperModelName {
+            folder = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("huggingface/models/argmaxinc/whisperkit-coreml/openai_whisper-\(name)", isDirectory: true)
+        }
+        guard let folder else { return nil }
         let files = ["AudioEncoder.mlmodelc", "TextDecoder.mlmodelc", "MelSpectrogram.mlmodelc"]
         return files.allSatisfy { FileManager.default.fileExists(atPath: folder.appendingPathComponent($0).path) } ? folder : nil
     }
@@ -119,10 +131,12 @@ final class WhisperModelDownloads: ObservableObject {
     }
 
     func remove(_ model: RecordingTranscriptionModel) async {
-        guard progress[model] == nil, modelFolder(for: model) != nil else { return }
+        guard progress[model] == nil, let folder = modelFolder(for: model) else { return }
         await WhisperKitTranscriptionService.shared.unload()
         do {
-            try FileManager.default.removeItem(at: root(for: model))
+            let root = root(for: model)
+            let target = folder.path.hasPrefix(root.path + "/") ? root : folder
+            try FileManager.default.removeItem(at: target)
             errors[model] = nil
             revision += 1
         } catch { errors[model] = error.localizedDescription }
