@@ -47,7 +47,7 @@ jobs:
           test -d "$APP_PATH"
           test -d "$APP_PATH/Watch/VenusToolsWatch.app"
           test -f "$APP_PATH/mlx-swift_Cmlx.bundle/default.metallib"
-          for MODEL in zipformer-model.int8.onnx zipformer-tokens.txt segmentation.int8.onnx speaker-embedding.zh.onnx; do
+          for MODEL in segmentation.int8.onnx speaker-embedding.zh.onnx; do
             test -s "$APP_PATH/RecorderModels/$MODEL"
           done
           mkdir -p Payload

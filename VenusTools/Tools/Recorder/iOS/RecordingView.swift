@@ -215,7 +215,7 @@ private struct RecordingModelsView: View {
     var body: some View {
         List {
             Section {
-                Text("实时字幕使用 Apple Speech。录音详情默认使用内置中文模型生成全文，也可选择其他本机模型或主动授权外部转写服务。分析服务只接收转写文字。")
+                Text("实时字幕和本机转写使用 Apple Speech，也可配置并授权外部转写服务。分析服务只接收转写文字。")
                     .font(.caption).foregroundStyle(AppTheme.secondary)
                 NavigationLink { ModelConfigurationEditor() } label: {
                     Label("添加在线模型配置", systemImage: "plus.circle")
@@ -239,99 +239,36 @@ private struct RecordingModelsView: View {
 private struct RecordingTranscriptionModelPicker: View {
     @Binding var selection: RecordingTranscriptionModel
     @ObservedObject private var registry = ModelRegistry.shared
-    @ObservedObject private var downloads = WhisperModelDownloads.shared
     @Environment(\.dismiss) private var dismiss
+    @State private var error: String?
 
     var body: some View {
         List {
-            Section("本机识别") {
-                ForEach(RecordingTranscriptionModel.allCases.filter { $0 != .configuredService }) { model in
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 8) {
-                            Button { selection = model; dismiss() } label: {
-                                modelRow(model)
-                            }.buttonStyle(.plain)
-                            if model == .zipformer {
-                                Text("已内置 · 26.36 MB").font(.caption2).foregroundStyle(AppTheme.secondary)
-                            } else if model == .appleSpeech {
-                                Text("系统管理").font(.caption2).foregroundStyle(AppTheme.secondary)
-                            } else if downloads.modelFolder(for: model) != nil {
-                                VStack(alignment: .trailing, spacing: 4) {
-                                    Text("已下载").font(.caption2).foregroundStyle(AppTheme.pine)
-                                    Text(ByteCountFormatter.string(fromByteCount: downloads.size(for: model), countStyle: .file))
-                                        .font(.caption2).foregroundStyle(AppTheme.secondary)
-                                    Button(role: .destructive) { Task { await downloads.remove(model) } } label: {
-                                        Image(systemName: "trash")
-                                    }.buttonStyle(.plain).accessibilityLabel("删除 \(model.title)")
-                                }
-                            } else if downloads.progress[model] == nil {
-                                Button { Task { await downloads.download(model) } } label: {
-                                    Image(systemName: "arrow.down.circle").font(.title3).foregroundStyle(AppTheme.pine)
-                                }.buttonStyle(.plain).accessibilityLabel("下载 \(model.title)")
-                            }
-                        }
-                        if model.whisperModelName != nil {
-                            Text("来源：Hugging Face（中国境外）").font(.caption2).foregroundStyle(AppTheme.secondary)
-                        }
-                        if let progress = downloads.progress[model] {
-                            ProgressView(value: progress).tint(.blue)
-                            Text("下载中 \(Int(progress * 100))%").font(.caption2).foregroundStyle(AppTheme.secondary)
-                        }
-                        if let error = downloads.errors[model] {
-                            Text("下载或删除失败：\(error)").font(.caption2).foregroundStyle(AppTheme.terracotta)
-                                .textSelection(.enabled)
-                        }
+            Section("语音转写模型") {
+                Button {
+                    do { try registry.bind(nil, to: .recordingTranscription); selection = .appleSpeech; dismiss() }
+                    catch { self.error = error.localizedDescription }
+                } label: {
+                    Label("Apple Speech · 系统管理", systemImage: registry.selected(.recordingTranscription) == nil ? "checkmark.circle.fill" : "circle")
+                }
+                ForEach(registry.configurations.filter { $0.enabled && ModelPurpose.recordingTranscription.accepts($0) }) { config in
+                    Button {
+                        do { try registry.bind(config.id, to: .recordingTranscription); selection = .configuredService; dismiss() }
+                        catch { self.error = error.localizedDescription }
+                    } label: {
+                        Label(config.name + (config.execution == .onDevice ? " · 离线" : " · 在线"), systemImage: registry.selected(.recordingTranscription)?.id == config.id ? "checkmark.circle.fill" : "circle")
                     }
-                    .listRowBackground(AppTheme.surface)
                 }
             }
-            Section("自定义服务") {
-                NavigationLink { ModelConfigurationEditor() } label: {
-                    Label("添加在线模型", systemImage: "plus.circle")
-                        .foregroundStyle(AppTheme.pine)
-                }
-                .listRowBackground(AppTheme.surface)
-                if registry.selected(.recordingTranscription) != nil {
-                    Button { selection = .configuredService; dismiss() } label: {
-                        modelRow(.configuredService)
-                    }
-                    .listRowBackground(AppTheme.surface)
-                }
-                NavigationLink { RecordingModelsView() } label: {
-                    Label("管理自定义识别服务", systemImage: "slider.horizontal.3")
-                        .foregroundStyle(AppTheme.pine)
-                }
-                .listRowBackground(AppTheme.surface)
-            }
-            Section("在线服务参考") {
-                Link("DeepSeek ASR · 录音转文字", destination: URL(string: "https://api-docs.deepseek.com/guides/asr/")!)
-                Link("通义千问 Qwen-ASR · 音频转文字", destination: URL(string: "https://help.aliyun.com/en/model-studio/asr-model")!)
-                Link("OpenAI 语音转文字 · 境外服务", destination: URL(string: "https://platform.openai.com/docs/guides/speech-to-text")!)
-                Text("DeepSeek V4 可分析转写文字；DeepSeek ASR 使用独立语音接口。在线服务需配置账号、费用及音频外发授权。")
-                    .font(.caption).foregroundStyle(AppTheme.secondary)
+            Section {
+                NavigationLink { RecordingModelsView() } label: { Label("模型列表与授权", systemImage: "slider.horizontal.3") }
+                if let error { Text(error).font(.caption).foregroundStyle(.red) }
             }
         }
         .scrollContentBackground(.hidden)
         .background(AppTheme.canvas)
         .navigationTitle("选择转写模型")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } }
-        }
-    }
-
-    private func modelRow(_ model: RecordingTranscriptionModel) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: selection == model ? "checkmark.circle.fill" : "circle")
-                .foregroundStyle(selection == model ? AppTheme.pine : AppTheme.secondary)
-                .font(.system(size: 20))
-            VStack(alignment: .leading, spacing: 4) {
-                Text(model.title).font(.subheadline.weight(.semibold)).foregroundStyle(AppTheme.ink)
-                Text(model.detail).font(.caption).foregroundStyle(AppTheme.secondary)
-            }
-            Spacer(minLength: 0)
-        }
-        .contentShape(Rectangle())
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } } }
     }
 }
 
@@ -340,7 +277,7 @@ private struct RecordingDetailView: View {
     let recordingID: UUID
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var modelRegistry = ModelRegistry.shared
-    @AppStorage("recording.transcription.fullAudioModel") private var selectedModelRawValue = RecordingTranscriptionModel.zipformer.rawValue
+    @AppStorage("recording.transcription.fullAudioModel") private var selectedModelRawValue = RecordingTranscriptionModel.appleSpeech.rawValue
     @State private var confirmDelete = false
     @State private var showingTranscript = true
     @State private var showingTranscriptTimeline = false
@@ -356,7 +293,7 @@ private struct RecordingDetailView: View {
     private var item: VoiceRecording? { store.recording(recordingID) }
     private var isWorking: Bool { store.workingID == recordingID }
     private var selectedModel: RecordingTranscriptionModel {
-        RecordingTranscriptionModel(rawValue: selectedModelRawValue) ?? .zipformer
+        return modelRegistry.selected(.recordingTranscription) == nil ? .appleSpeech : .configuredService
     }
     private var selectedModelBinding: Binding<RecordingTranscriptionModel> {
         Binding(
@@ -483,7 +420,7 @@ private struct RecordingDetailView: View {
                 }
                 .disabled(isWorking)
                 Button { showingModelPicker = true } label: {
-                    Label(selectedModel.title, systemImage: "slider.horizontal.3")
+                    Label(modelRegistry.selected(.recordingTranscription)?.name ?? "Apple Speech", systemImage: "slider.horizontal.3")
                         .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity).padding(.vertical, 11)
                         .foregroundStyle(AppTheme.pine).background(AppTheme.sage, in: Capsule())
                         .lineLimit(1).minimumScaleFactor(0.75)

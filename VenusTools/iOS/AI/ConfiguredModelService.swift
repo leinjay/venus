@@ -33,6 +33,12 @@ final class ConfiguredModelService {
     }
     func transcribe(audio url: URL, purpose: ModelPurpose = .transcription) async throws -> String {
         let registry = ModelRegistry.shared, config = try registry.resolve(purpose), epoch = registry.callEpoch
+        if config.execution == .onDevice, ModelConfiguration.localSpeechIDs.contains(config.modelID) {
+            let output = try await OfflineSpeechTranscription.transcribe(url, modelID: config.modelID)
+            try Task.checkCancellation()
+            guard registry.callEpoch == epoch, try registry.resolve(purpose).id == config.id else { throw CancellationError() }
+            return output.text
+        }
         guard (try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 20_000_001) <= 20_000_000 else { throw ModelFailure("录音超过 20 MB，请重新录制较短内容") }
         let audio = try Data(contentsOf: url), credential = try registry.credential(config), id = UUID()
         let isWAV = url.pathExtension.lowercased() == "wav"

@@ -71,6 +71,22 @@ struct ModelTestResult: Codable, Equatable {
     var success: Bool
 }
 struct ModelConfiguration: Codable, Equatable, Identifiable {
+    static let senseVoiceID = "sherpa-onnx/sensevoice-small-int8"
+    static let qwenASRID = "sherpa-onnx/qwen3-asr-0.6b-int8"
+    static let localSpeechIDs = [senseVoiceID, qwenASRID]
+    static var localSpeechModels: [ModelConfiguration] {
+        [(senseVoiceID, "SenseVoice Small", "00000000-0000-4000-8000-000000000101"),
+         (qwenASRID, "Qwen3-ASR 0.6B", "00000000-0000-4000-8000-000000000102")].map { modelID, name, id in
+            var config = ModelConfiguration()
+            config.id = UUID(uuidString: id)!
+            config.name = name
+            config.modelID = modelID
+            config.provider = "sherpa-onnx"
+            config.adapter = .transcription
+            config.textCapable = false
+            return config
+        }
+    }
     var id = UUID()
     var name = ""
     var execution = ModelExecution.onDevice
@@ -138,6 +154,11 @@ enum ModelValidation {
         guard !config.modelID.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else { throw ModelFailure("模型标识不能包含换行或控制字符") }
         guard (10...120).contains(config.timeoutSeconds) else { throw ModelFailure("超时需为 10～120 秒") }
         if config.execution == .onDevice {
+            if ModelConfiguration.localSpeechIDs.contains(config.modelID) {
+                guard config.adapter == .transcription, !config.requiresKey, config.credentialRef == nil,
+                      config.baseURL.isEmpty, !config.textCapable else { throw ModelFailure("本机语音模型配置无效") }
+                return
+            }
             guard config.adapter == .mlx, !config.requiresKey, config.credentialRef == nil, config.baseURL.isEmpty else { throw ModelFailure("本机配置不使用地址或推理密钥") }
             guard ["mlx-community/Qwen3-1.7B-4bit", "mlx-community/Qwen2-VL-2B-Instruct-4bit", "whisper-small"].contains(config.modelID) else { throw ModelFailure("请选择受支持的本机模板") }
             if config.modelID != "mlx-community/Qwen3-1.7B-4bit", config.enabled { throw ModelFailure("视觉 MLX / WhisperKit 运行库尚未接入，模板暂不可启用；现有本机 OCR 和系统语音仍可使用") }

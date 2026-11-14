@@ -41,7 +41,10 @@ final class ModelRegistry: ObservableObject {
     @Published var storageError: String?
     private let file: URL
     private var writable = true
-    var configurations: [ModelConfiguration] { data.configurations.sorted { $0.createdAt < $1.createdAt } }
+    var configurations: [ModelConfiguration] {
+        data.configurations.filter { $0.modelID != "whisper-small" }.sorted { $0.createdAt < $1.createdAt }
+            + ModelConfiguration.localSpeechModels
+    }
 
     private init() {
         let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Settings", isDirectory: true)
@@ -61,13 +64,16 @@ final class ModelRegistry: ObservableObject {
         guard writable else { throw ModelFailure("配置存储不可写，请先处理读取错误") }
         try JSONEncoder().encode(value).write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
-    func configuration(_ id: UUID?) -> ModelConfiguration? { data.configurations.first { $0.id == id } }
+    func configuration(_ id: UUID?) -> ModelConfiguration? { configurations.first { $0.id == id } }
     func selected(_ purpose: ModelPurpose) -> ModelConfiguration? { configuration(data.bindings[purpose.binding]) }
     func credential(_ configuration: ModelConfiguration) throws -> ModelCredential? { try ModelKeychain.read(configuration.credentialRef) }
     func references(_ id: UUID) -> [ModelPurpose] { ModelPurpose.allCases.filter { data.bindings[$0.binding] == id } }
     func status(_ config: ModelConfiguration) -> String {
         if !config.enabled { return config.execution == .onDevice && !config.textCapable ? "尚未接入运行能力" : "已禁用" }
         if config.execution == .onDevice {
+            if ModelConfiguration.localSpeechIDs.contains(config.modelID) {
+                return OfflineSpeechModels.shared.isReady(config.modelID) ? "已下载" : "未下载"
+            }
             if config.modelID != LocalQwenService.modelID { return "此本机运行库尚未接入" }
             if !LocalQwenService.shared.ready { return "模型未下载或未验证" }
             return config.validTest?.success == true ? "本机文字测试成功" : "已下载 · 待推理验证"

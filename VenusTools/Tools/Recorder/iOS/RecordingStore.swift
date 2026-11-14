@@ -481,7 +481,7 @@ final class RecordingStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
     }
 
-    func transcribe(_ item: VoiceRecording, model: RecordingTranscriptionModel = .zipformer) async {
+    func transcribe(_ item: VoiceRecording, model: RecordingTranscriptionModel = .appleSpeech) async {
         guard workingID == nil else { return }
         workingID = item.id
         workingMessage = model == .appleSpeech ? "正在使用 Apple Speech 转写…" : "正在准备 \(model.title)…"
@@ -496,18 +496,22 @@ final class RecordingStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 else if index == 0 { workingMessage = "正在转写原录音…" }
                 else { workingMessage = "正在转写补录片段 \(index)/\(urls.count - 1)…" }
                 if model == .configuredService {
-                    transcripts.append(try await ConfiguredModelService.shared.transcribe(audio: url, purpose: .recordingTranscription))
-                    timestampedTranscripts.append(nil)
+                    let selected = try ModelRegistry.shared.resolve(.recordingTranscription)
+                    if selected.execution == .onDevice, ModelConfiguration.localSpeechIDs.contains(selected.modelID) {
+                        let recognized = try await OfflineSpeechTranscription.transcribe(url, modelID: selected.modelID)
+                        transcripts.append(recognized.text)
+                        timestampedTranscripts.append(recognized)
+                    } else {
+                        transcripts.append(try await ConfiguredModelService.shared.transcribe(audio: url, purpose: .recordingTranscription))
+                        timestampedTranscripts.append(nil)
+                    }
                 } else {
                     let recognized: TimestampedSpeechTranscript
                     switch model {
-                    case .zipformer:
-                        recognized = try await ZipformerTranscriptionService.transcribe(url)
-                    case .appleSpeech:
+                    case .zipformer, .appleSpeech:
                         recognized = try await Self.transcribeTimestampedOnDevice(url)
                     default:
-                        workingMessage = "正在加载 \(model.title)，首次使用需要下载…"
-                        recognized = try await WhisperKitTranscriptionService.shared.transcribe(url, model: model)
+                        recognized = try await Self.transcribeTimestampedOnDevice(url)
                     }
                     transcripts.append(recognized.text)
                     timestampedTranscripts.append(recognized)
@@ -551,7 +555,12 @@ final class RecordingStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 workingMessage = urls.count == 1
                     ? "正在本机识别语音并对齐说话人…"
                     : "正在识别第 \(index + 1)/\(urls.count) 段录音…"
-                transcripts.append(try await ZipformerTranscriptionService.transcribe(url, alignSpeakers: true))
+                if let selected = ModelRegistry.shared.selected(.recordingTranscription),
+                   selected.execution == .onDevice, ModelConfiguration.localSpeechIDs.contains(selected.modelID) {
+                    transcripts.append(try await OfflineSpeechTranscription.transcribe(url, modelID: selected.modelID))
+                } else {
+                    transcripts.append(try await Self.transcribeTimestampedOnDevice(url))
+                }
             }
             let output = try await SpeakerDiarizationService.diarize(audioURLs: urls, transcripts: transcripts) { [weak self] status in
                 Task { @MainActor in
@@ -672,7 +681,7 @@ final class RecordingStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 workingMessage = urls.count == 1
                     ? "正在整理完整录音的离线转写…"
                     : "正在整理第 \(index + 1)/\(urls.count) 段录音…"
-                transcripts.append(try await ZipformerTranscriptionService.transcribe(url))
+                transcripts.append(try await Self.transcribeTimestampedOnDevice(url))
             }
             guard transcripts.contains(where: { !$0.text.isEmpty }) else { return }
             guard let index = recordings.firstIndex(where: { $0.id == targetID }),

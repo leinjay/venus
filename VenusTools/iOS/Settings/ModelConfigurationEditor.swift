@@ -73,7 +73,6 @@ struct ModelConfigurationEditor: View {
             Picker("模型资源", selection: $config.modelID) {
                 Text("Qwen3 · 文字").tag("mlx-community/Qwen3-1.7B-4bit")
                 Text("Qwen2-VL · 图片模板（暂不可用）").tag("mlx-community/Qwen2-VL-2B-Instruct-4bit")
-                Text("Whisper small · 语音模板（暂不可用）").tag("whisper-small")
             }.onChange(of: config.modelID) { _, id in config.textCapable = id == LocalQwenService.modelID; config.enabled = config.textCapable; config.provider = id == "whisper-small" ? "WhisperKit" : "MLX" }
             if config.modelID == LocalQwenService.modelID { QwenModelPanel() }
             else { Text("此模板保留配置位置，运行能力尚未接入，不能启用或被文字功能引用。现有 OCR 和系统离线语音不受影响。").font(.caption) }

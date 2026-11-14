@@ -25,11 +25,11 @@ struct SettingsView: View {
                 Section {
                     NavigationLink(value: SettingsRoute.models) {
                         VStack(alignment: .leading, spacing: 5) {
-                            Label("模型配置", systemImage: "cpu")
+                            Label("模型列表", systemImage: "cpu")
                             Text("\(registry.configurations.count) 个具名配置 · 供各工具引用").font(.caption).foregroundStyle(.secondary)
                         }
                     }
-                    NavigationLink("工具使用模型") { ModelBindingsView() }
+                    NavigationLink("使用列表") { ModelBindingsView() }
                 } footer: { Text("默认使用手机本机模型。局域网或第三方模型需自行配置，并按功能确认发送范围。") }
                 if let error = registry.storageError { Section { Text(error).foregroundStyle(.red) } }
             }.navigationTitle("设置")
@@ -45,6 +45,7 @@ struct ModelListView: View {
     @EnvironmentObject private var navigation: AppNavigation
     @ObservedObject private var registry = ModelRegistry.shared
     @ObservedObject private var local = LocalQwenService.shared
+    @ObservedObject private var speechModels = OfflineSpeechModels.shared
     @State private var adding = false
     @State private var deleting: ModelConfiguration?
     @State private var importer = false
@@ -57,15 +58,23 @@ struct ModelListView: View {
         List {
             Section {
                 NavigationLink("添加模型") { ModelConfigurationEditor() }
-                NavigationLink("工具使用模型") { ModelBindingsView() }
+                NavigationLink("使用列表") { ModelBindingsView() }
                 Button("导入加密初始化文件") { importer = true }
             }
             Section("已保存模型 · \(registry.configurations.count)") {
                 if registry.configurations.isEmpty { Text("添加第一个具名配置，工具即可按名称选择。") }
                 ForEach(registry.configurations) { config in
+                    if ModelConfiguration.localSpeechIDs.contains(config.modelID) {
+                        OfflineSpeechModelRow(config: config)
+                    } else {
                     NavigationLink { ModelConfigurationEditor(configuration: config) } label: {
                         VStack(alignment: .leading, spacing: 5) {
                             Text(config.name).font(.headline)
+                            HStack(spacing: 8) {
+                                Text(config.execution == .onDevice ? "离线" : "在线")
+                                Text(config.adapter == .transcription ? "语音" : (config.textCapable ? "文字" : (config.modelID == "whisper-small" ? "语音" : "图像")))
+                                Text(config.execution == .onDevice ? "大小见模型资源" : "云端 · 无本地大小")
+                            }.font(.caption2).foregroundStyle(AppTheme.pine)
                             Text("\(config.execution.title) · \(config.provider)").font(.caption)
                             Text(config.modelID).font(.caption2).foregroundStyle(.secondary)
                             Text("\(registry.status(config)) · \(config.capabilityTitle) · \(registry.references(config.id).count) 个功能引用").font(.caption2).foregroundStyle(.secondary)
@@ -76,14 +85,15 @@ struct ModelListView: View {
                             if let test = config.validTest { Text("最近测试 \(test.date.formatted())").font(.caption2).foregroundStyle(.secondary) }
                         }
                     }.swipeActions { Button("删除", role: .destructive) { deleting = config } }
+                    }
                 }
             }
             Section("本机模型资源") {
                 QwenModelPanel()
-                Text("本机视觉和 WhisperKit 运行库尚未接入，预留模板不是下载失败。语音可在‘工具使用模型’选择已配置的音频转写模型或系统离线识别；普通文字模型不能直接转写录音。").font(.caption).foregroundStyle(.secondary)
+                Text("语音模型可在模型列表中下载；在使用列表为各场景选择转写模型。").font(.caption).foregroundStyle(.secondary)
                 Text("Qwen3 固定版本：\(LocalQwenService.revision)\n运行库 MLX Swift examples 2.25.9；多个文字配置共享这一份权重，生成参数分别保存。").font(.caption2).textSelection(.enabled)
             }
-        }.navigationTitle("模型配置")
+        }.navigationTitle("模型列表")
             .navigationBarBackButtonHidden(navigation.returnTab != nil && navigation.settingsPath == [.models])
             .toolbar {
                 if navigation.returnTab != nil && navigation.settingsPath == [.models] {
@@ -148,7 +158,48 @@ struct ModelBindingsView: View {
         List {
             Section { ModelBindingPanel(purpose: .dialogue); ModelBindingPanel(purpose: .summary); ModelBindingPanel(purpose: .search); ModelBindingPanel(purpose: .transcription); ModelBindingPanel(purpose: .recordingSummary); ModelBindingPanel(purpose: .recordingTranscription) }
             Section { Text("模型改名后引用保持有效；禁用、删除或调用参数变更后，旧请求会停止。配置测试仅使用固定样本，不代表已授权发送任务。").font(.caption).foregroundStyle(.secondary) }
-        }.navigationTitle("工具使用模型")
+        }.navigationTitle("使用列表")
+    }
+}
+
+struct OfflineSpeechModelRow: View {
+    let config: ModelConfiguration
+    @ObservedObject private var models = OfflineSpeechModels.shared
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(config.name).font(.headline)
+                    Text("离线 · 语音 · \(ByteCountFormatter.string(fromByteCount: models.size(config.modelID), countStyle: .file))")
+                        .font(.caption).foregroundStyle(AppTheme.pine)
+                    Text("来源：Hugging Face（中国境外）").font(.caption2).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if models.isReady(config.modelID) {
+                    VStack(alignment: .trailing) {
+                        Text("已下载").font(.caption).foregroundStyle(AppTheme.pine)
+                        Button(role: .destructive) { models.remove(config.modelID) } label: {
+                            Image(systemName: "trash")
+                        }.buttonStyle(.borderless).accessibilityLabel("删除 \(config.name)")
+                    }
+                } else if models.progress[config.modelID] == nil {
+                    Button { Task { await models.download(config.modelID) } } label: {
+                        Image(systemName: "arrow.down.circle").font(.title2)
+                    }.buttonStyle(.borderless).accessibilityLabel("下载 \(config.name)")
+                }
+            }
+            if let progress = models.progress[config.modelID] {
+                ProgressView(value: progress).tint(.blue)
+                HStack {
+                    Text("下载中 \(Int(progress * 100))%")
+                    Spacer()
+                    Text("\(ByteCountFormatter.string(fromByteCount: Int64(models.speed[config.modelID] ?? 0), countStyle: .file))/s")
+                }.font(.caption2).foregroundStyle(.secondary)
+            }
+            if let error = models.errors[config.modelID] {
+                Text("操作失败：\(error)").font(.caption).foregroundStyle(AppTheme.terracotta).textSelection(.enabled)
+            }
+        }.padding(.vertical, 5)
     }
 }
 
@@ -157,6 +208,7 @@ struct ModelBindingPanel: View {
     var onManage: (() -> Void)? = nil
     @EnvironmentObject private var navigation: AppNavigation
     @ObservedObject private var registry = ModelRegistry.shared
+    @ObservedObject private var speechModels = OfflineSpeechModels.shared
     @State private var consent = false
     @State private var error: String?
     private var selected: ModelConfiguration? { registry.selected(purpose) }
