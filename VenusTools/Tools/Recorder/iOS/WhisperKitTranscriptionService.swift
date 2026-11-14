@@ -27,10 +27,10 @@ final class OfflineSpeechModels: ObservableObject {
     private let specs: [String: SpeechModelSpec] = [
         ModelConfiguration.senseVoiceID: SpeechModelSpec(
             repository: "chris-cao/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17",
-            revision: "20dc3eb",
+            revision: "20dc3ebe15651c2e26d7e07b04fcd84a39c3b920",
             files: [
                 SpeechModelFile(path: "model.int8.onnx", sha256: "c71f0ce00bec95b07744e116345e33d8cbbe08cef896382cf907bf4b51a2cd51", estimatedSize: 239_000_000),
-                SpeechModelFile(path: "tokens.txt", sha256: nil, estimatedSize: 316_000)
+                SpeechModelFile(path: "tokens.txt", sha256: "f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc", estimatedSize: 315_894)
             ]),
         ModelConfiguration.qwenASRID: SpeechModelSpec(
             repository: "csukuangfj2/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25",
@@ -39,7 +39,7 @@ final class OfflineSpeechModels: ObservableObject {
                 SpeechModelFile(path: "conv_frontend.onnx", sha256: "d22dc4423e0940e49884e903d2ea2f7e5567c14fc1aed97e4e26d6b8f208ef9e", estimatedSize: 44_100_000),
                 SpeechModelFile(path: "encoder.int8.onnx", sha256: "60748d3e6744a57c9c91e1b17424a6c2990567e8adceb0783940c03ed98fa9d9", estimatedSize: 182_000_000),
                 SpeechModelFile(path: "decoder.int8.onnx", sha256: "4f6885be5959ae26af3089d38ee7972c5fafbeeb1cf8d5e76eab6d8b61ca5771", estimatedSize: 756_000_000),
-                SpeechModelFile(path: "tokenizer/merges.txt", sha256: nil, estimatedSize: 1_670_000),
+                SpeechModelFile(path: "tokenizer/merges.txt", sha256: "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5", estimatedSize: 1_671_853),
                 SpeechModelFile(path: "tokenizer/tokenizer_config.json", sha256: "4942d005604266809309cabc9f4e9cb89ce855d59b14681fdc0e1cc62ea26c4c", estimatedSize: 12_500),
                 SpeechModelFile(path: "tokenizer/vocab.json", sha256: "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910", estimatedSize: 2_780_000)
             ])
