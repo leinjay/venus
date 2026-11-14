@@ -212,7 +212,6 @@ final class RecordingStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     func stopRecording() {
         guard isRecording, let id = recordingID else { return }
-        let refineTranscript = speechRequest != nil
         let duration = TimeInterval(recordingSeconds)
         let fileName = "\(id.uuidString).wav"
         engine.stop()
@@ -265,11 +264,10 @@ final class RecordingStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
         do { try persist() }
         catch { errorMessage = error.localizedDescription }
-        if refineTranscript {
-            let targetID = supplementID ?? id
+        if let targetID = recording(supplementID ?? id)?.id ?? recording(id)?.id {
             workingID = targetID
             workingMessage = "正在整理完整录音的离线转写…"
-            Task { await finalizeOnDeviceTranscript(for: item) }
+            Task { await finalizeOnDeviceTranscript(for: targetID) }
         }
     }
 
@@ -483,7 +481,7 @@ final class RecordingStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         }
     }
 
-    func transcribe(_ item: VoiceRecording, model: RecordingTranscriptionModel = .appleSpeech) async {
+    func transcribe(_ item: VoiceRecording, model: RecordingTranscriptionModel = .zipformer) async {
         guard workingID == nil else { return }
         workingID = item.id
         workingMessage = model == .appleSpeech ? "正在使用 Apple Speech 转写…" : "正在准备 \(model.title)…"
@@ -500,18 +498,28 @@ final class RecordingStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 if model == .configuredService {
                     transcripts.append(try await ConfiguredModelService.shared.transcribe(audio: url, purpose: .recordingTranscription))
                     timestampedTranscripts.append(nil)
-                } else if model == .appleSpeech {
-                    let recognized = try await Self.transcribeTimestampedOnDevice(url)
-                    transcripts.append(recognized.text)
-                    timestampedTranscripts.append(recognized)
                 } else {
-                    workingMessage = "首次使用需下载 \(model.title) 模型，随后会在本机转写…"
-                    let recognized = try await WhisperKitTranscriptionService.shared.transcribe(url, model: model)
+                    let recognized: TimestampedSpeechTranscript
+                    switch model {
+                    case .zipformer:
+                        recognized = try await ZipformerTranscriptionService.transcribe(url)
+                    case .appleSpeech:
+                        recognized = try await Self.transcribeTimestampedOnDevice(url)
+                    default:
+                        workingMessage = "正在加载 \(model.title)，首次使用需要下载…"
+                        recognized = try await WhisperKitTranscriptionService.shared.transcribe(url, model: model)
+                    }
                     transcripts.append(recognized.text)
                     timestampedTranscripts.append(recognized)
                 }
             }
+            guard transcripts.contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
+                throw ModelFailure("没有识别到语音内容。")
+            }
             if let recordingIndex = recordings.firstIndex(where: { $0.id == item.id }) {
+                guard recordings[recordingIndex].audioFileNames == item.audioFileNames else {
+                    throw ModelFailure("录音片段已更新，请重新转写。")
+                }
                 var updated = recordings[recordingIndex]
                 updated.baseTranscript = transcripts.first ?? ""
                 for (segmentID, transcript) in zip(segmentIDs, transcripts.dropFirst()) {
@@ -543,7 +551,7 @@ final class RecordingStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 workingMessage = urls.count == 1
                     ? "正在本机识别语音并对齐说话人…"
                     : "正在识别第 \(index + 1)/\(urls.count) 段录音…"
-                transcripts.append(try await Self.transcribeTimestampedOnDevice(url))
+                transcripts.append(try await ZipformerTranscriptionService.transcribe(url, alignSpeakers: true))
             }
             let output = try await SpeakerDiarizationService.diarize(audioURLs: urls, transcripts: transcripts) { [weak self] status in
                 Task { @MainActor in
@@ -652,8 +660,7 @@ final class RecordingStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     func recording(_ id: UUID) -> VoiceRecording? { recordings.first { $0.id == id } }
 
-    private func finalizeOnDeviceTranscript(for stoppedClip: VoiceRecording) async {
-        let targetID = stoppedClip.supplementForID ?? stoppedClip.id
+    private func finalizeOnDeviceTranscript(for targetID: UUID) async {
         defer {
             if workingID == targetID { workingID = nil; workingMessage = "" }
         }
@@ -665,8 +672,9 @@ final class RecordingStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 workingMessage = urls.count == 1
                     ? "正在整理完整录音的离线转写…"
                     : "正在整理第 \(index + 1)/\(urls.count) 段录音…"
-                transcripts.append(try await Self.transcribeTimestampedOnDevice(url))
+                transcripts.append(try await ZipformerTranscriptionService.transcribe(url))
             }
+            guard transcripts.contains(where: { !$0.text.isEmpty }) else { return }
             guard let index = recordings.firstIndex(where: { $0.id == targetID }),
                   recordings[index].audioFileNames == initial.audioFileNames else { return }
             var updated = recordings[index]
@@ -683,7 +691,7 @@ final class RecordingStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
             recordings[index] = updated
             try persist()
         } catch {
-            errorMessage = "实时字幕可能不完整，点击“重新生成”可重试：\(error.localizedDescription)"
+            errorMessage = "录音全文转写失败，点击“转成文字”可重试：\(error.localizedDescription)"
         }
     }
 
@@ -770,7 +778,7 @@ final class RecordingStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
         let source = try AVAudioFile(forReading: url)
         guard source.processingFormat.sampleRate > 0 else { throw ModelFailure("录音采样率无法读取。") }
-        let chunkLimit = Int64(source.processingFormat.sampleRate * 45)
+        let chunkLimit = Int64(source.processingFormat.sampleRate * 15)
         guard source.length > chunkLimit else { return try await recognizeFile(url, with: recognizer) }
 
         let temporaryDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -797,11 +805,15 @@ final class RecordingStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
         var segments: [TimestampedSpeechSegment] = []
         var offset: TimeInterval = 0
         for chunk in chunks {
-            let result = try await recognizeFile(chunk.url, with: recognizer)
-            text += result.text
-            segments.append(contentsOf: result.segments.map {
-                TimestampedSpeechSegment(start: offset + $0.start, duration: $0.duration, text: $0.text)
-            })
+            do {
+                let result = try await recognizeFile(chunk.url, with: recognizer)
+                text += result.text
+                segments.append(contentsOf: result.segments.map {
+                    TimestampedSpeechSegment(start: offset + $0.start, duration: $0.duration, text: $0.text)
+                })
+            } catch SpeechFileRecognition.NoSpeech.detected {
+                // Silence in one window does not invalidate the rest of the recording.
+            }
             offset += chunk.duration
         }
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ModelFailure("没有识别到语音内容") }
@@ -851,6 +863,11 @@ final class RecordingStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
 @MainActor
 private final class SpeechFileRecognition {
+    enum NoSpeech: LocalizedError {
+        case detected
+        var errorDescription: String? { "没有识别到语音内容。" }
+    }
+
     private var continuation: CheckedContinuation<TimestampedSpeechTranscript, Error>?
     private var task: SFSpeechRecognitionTask?
 
@@ -862,7 +879,7 @@ private final class SpeechFileRecognition {
                     if let result, result.isFinal {
                         let transcription = result.bestTranscription
                         let text = transcription.formattedString.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if text.isEmpty { self?.finish(.failure(ModelFailure("没有识别到语音内容"))) }
+                        if text.isEmpty { self?.finish(.failure(NoSpeech.detected)) }
                         else {
                             let segments = transcription.segments.map {
                                 TimestampedSpeechSegment(start: $0.timestamp, duration: $0.duration, text: $0.substring)
@@ -871,7 +888,15 @@ private final class SpeechFileRecognition {
                         }
                         return
                     }
-                    if let error { self?.finish(.failure(error)) }
+                    if let error {
+                        let failure = error as NSError
+                        // Apple Speech reports error 1110 for audio without recognized speech.
+                        if failure.domain == "kAFAssistantErrorDomain", failure.code == 1110 {
+                            self?.finish(.failure(NoSpeech.detected))
+                        } else {
+                            self?.finish(.failure(error))
+                        }
+                    }
                 }
             }
         }

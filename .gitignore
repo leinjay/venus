@@ -12,6 +12,7 @@ xcuserdata/
 
 # Local model caches and Swift package output
 .models/
+VenusTools/iOS/Resources/RecorderModels/
 .build/
 .swiftpm/
 __pycache__/

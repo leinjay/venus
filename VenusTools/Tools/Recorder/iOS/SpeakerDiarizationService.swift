@@ -1,5 +1,4 @@
 import AVFoundation
-import CryptoKit
 import Foundation
 import SherpaOnnx
 
@@ -24,30 +23,6 @@ struct SpeakerDiarizationOutput: Sendable {
 enum SpeakerDiarizationService {
     private static let sampleRate = 16_000
     private static let interClipSilence = 0.6
-    private static let modelDirectory = RecordingStorage.root
-        .appendingPathComponent("Models", isDirectory: true)
-        .appendingPathComponent("SpeakerDiarization", isDirectory: true)
-
-    private struct ModelFile: Sendable {
-        let name: String
-        let url: URL
-        let sha256: String
-        let minimumBytes: Int
-    }
-
-    private static let segmentationModel = ModelFile(
-        name: "segmentation.int8.onnx",
-        url: URL(string: "https://huggingface.co/csukuangfj/sherpa-onnx-pyannote-segmentation-3-0/resolve/9403a6902bb58e3d5ae8c7e77c3422de279db2e0/model.int8.onnx")!,
-        sha256: "d582f4b4c6b48205de7e0643c57df0df5615a3c176189be3fc461e9d18827b5d",
-        minimumBytes: 1_000_000
-    )
-
-    private static let embeddingModel = ModelFile(
-        name: "speaker-embedding.zh.onnx",
-        url: URL(string: "https://huggingface.co/csukuangfj/speaker-embedding-models/resolve/8be2a75c9ed7a590538b268e46fbb65e1aa9d208/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx")!,
-        sha256: "1a331345f04805badbb495c775a6ddffcdd1a732567d5ec8b3d5749e3c7a5e4b",
-        minimumBytes: 30_000_000
-    )
 
     static func diarize(
         audioURLs: [URL],
@@ -63,55 +38,14 @@ enum SpeakerDiarizationService {
         guard totalDuration <= 60 * 60 else {
             throw ModelFailure("单次最多区分 60 分钟录音，请减少补录片段后重试。")
         }
-        onStatus("正在检查分人模型（首次下载约 41 MB）…")
-        let modelPaths = try await ensureModels()
+        guard let segmentation = Bundle.main.url(forResource: "segmentation.int8", withExtension: "onnx", subdirectory: "RecorderModels"),
+              let embedding = Bundle.main.url(forResource: "speaker-embedding.zh", withExtension: "onnx", subdirectory: "RecorderModels") else {
+            throw ModelFailure("安装包缺少内置说话人模型。")
+        }
         return try await Task.detached(priority: .userInitiated) {
-            onStatus("模型已就绪，正在本机分析说话人…")
-            return try runDiarization(audioURLs: audioURLs, transcripts: transcripts, modelPaths: modelPaths)
+            onStatus("正在用内置模型区分说话人…")
+            return try runDiarization(audioURLs: audioURLs, transcripts: transcripts, modelPaths: (segmentation, embedding))
         }.value
-    }
-
-    private static func ensureModels() async throws -> (segmentation: URL, embedding: URL) {
-        try FileManager.default.createDirectory(at: modelDirectory, withIntermediateDirectories: true)
-        var directoryURL = modelDirectory
-        var values = URLResourceValues()
-        values.isExcludedFromBackup = true
-        try? directoryURL.setResourceValues(values)
-
-        async let segmentation = ensureModel(segmentationModel)
-        async let embedding = ensureModel(embeddingModel)
-        return try await (segmentation, embedding)
-    }
-
-    private static func ensureModel(_ model: ModelFile) async throws -> URL {
-        let destination = modelDirectory.appendingPathComponent(model.name)
-        if isValidModel(at: destination, model: model) { return destination }
-        try? FileManager.default.removeItem(at: destination)
-
-        var request = URLRequest(url: model.url)
-        request.timeoutInterval = 180
-        let (temporaryURL, response) = try await URLSession.shared.download(for: request)
-        guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode) else {
-            throw ModelFailure("说话人模型下载失败，请检查网络后重试。")
-        }
-        guard isValidModel(at: temporaryURL, model: model) else {
-            throw ModelFailure("下载的说话人模型校验失败，请重试。")
-        }
-        try FileManager.default.moveItem(at: temporaryURL, to: destination)
-        try? FileManager.default.setAttributes(
-            [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
-            ofItemAtPath: destination.path
-        )
-        return destination
-    }
-
-    private static func isValidModel(at url: URL, model: ModelFile) -> Bool {
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
-              let size = attributes[.size] as? NSNumber,
-              size.intValue >= model.minimumBytes,
-              let data = try? Data(contentsOf: url, options: .mappedIfSafe) else { return false }
-        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-        return digest == model.sha256
     }
 
     private struct TimedSpeakerText {
@@ -142,7 +76,7 @@ enum SpeakerDiarizationService {
         var clipOffsets: [TimeInterval] = []
         for (index, url) in audioURLs.enumerated() {
             clipOffsets.append(Double(samples.count) / Double(sampleRate))
-            try appendResampledSamples(from: url, into: &samples)
+            try RecorderAudioSamples.read(from: url, sampleRate: sampleRate) { samples.append(contentsOf: $0) }
             if index < audioURLs.count - 1 {
                 samples.append(contentsOf: repeatElement(0, count: Int(Double(sampleRate) * interClipSilence)))
             }
@@ -305,11 +239,14 @@ enum SpeakerDiarizationService {
         return String(format: "%02d:%02d", totalSeconds / 60, totalSeconds % 60)
     }
 
-    private static func appendResampledSamples(from url: URL, into samples: inout [Float]) throws {
+}
+
+enum RecorderAudioSamples {
+    static func read(from url: URL, sampleRate: Int, consume: ([Float]) throws -> Void) throws {
         let input = try AVAudioFile(forReading: url)
         guard let outputFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: Double(sampleRate), channels: 1, interleaved: false),
               let converter = AVAudioConverter(from: input.processingFormat, to: outputFormat) else {
-            throw ModelFailure("录音格式无法转换为说话人模型需要的音频格式。")
+            throw ModelFailure("录音格式无法转换为离线模型需要的音频格式。")
         }
         var finished = false
         while !finished {
@@ -318,13 +255,13 @@ enum SpeakerDiarizationService {
             }
             var conversionError: NSError?
             var readError: Error?
-            let status = converter.convert(to: output, error: &conversionError) { _, inputStatus in
+            let status = converter.convert(to: output, error: &conversionError) { requested, inputStatus in
                 guard input.framePosition < input.length else {
                     inputStatus.pointee = .endOfStream
                     return nil
                 }
                 let remaining = input.length - input.framePosition
-                let framesToRead = AVAudioFrameCount(min(Int64(16_384), remaining))
+                let framesToRead = AVAudioFrameCount(min(Int64(requested), remaining))
                 guard let buffer = AVAudioPCMBuffer(pcmFormat: input.processingFormat, frameCapacity: framesToRead) else {
                     readError = ModelFailure("无法读取录音片段")
                     inputStatus.pointee = .noDataNow
@@ -337,6 +274,11 @@ enum SpeakerDiarizationService {
                     inputStatus.pointee = .noDataNow
                     return nil
                 }
+                guard buffer.frameLength > 0 else {
+                    readError = ModelFailure("录音文件意外结束。")
+                    inputStatus.pointee = .endOfStream
+                    return nil
+                }
                 inputStatus.pointee = .haveData
                 return buffer
             }
@@ -344,7 +286,7 @@ enum SpeakerDiarizationService {
             if let conversionError { throw conversionError }
             if status == .error { throw ModelFailure("音频转换失败。") }
             if let channel = output.floatChannelData?.pointee, output.frameLength > 0 {
-                samples.append(contentsOf: UnsafeBufferPointer(start: channel, count: Int(output.frameLength)))
+                try consume(Array(UnsafeBufferPointer(start: channel, count: Int(output.frameLength))))
             }
             if status == .endOfStream {
                 finished = true

@@ -6,6 +6,7 @@ enum RecordingOrigin: String, Codable {
 }
 
 enum RecordingTranscriptionModel: String, CaseIterable, Identifiable, Codable, Hashable {
+    case zipformer
     case appleSpeech
     case whisperTiny
     case whisperBase
@@ -16,6 +17,7 @@ enum RecordingTranscriptionModel: String, CaseIterable, Identifiable, Codable, H
     var id: String { rawValue }
     var title: String {
         switch self {
+        case .zipformer: return "内置中文转写"
         case .appleSpeech: return "Apple Speech"
         case .whisperTiny: return "Whisper Tiny"
         case .whisperBase: return "Whisper Base"
@@ -26,7 +28,8 @@ enum RecordingTranscriptionModel: String, CaseIterable, Identifiable, Codable, H
     }
     var detail: String {
         switch self {
-        case .appleSpeech: return "默认推荐 · 本机离线 · 无需下载 · 词级时间戳"
+        case .zipformer: return "默认 · 本机离线 · 安装后即可转写全文"
+        case .appleSpeech: return "系统离线识别 · 需要语音识别权限"
         case .whisperTiny: return "本机离线 · 轻量快速 · 分段时间戳 · 首次下载模型"
         case .whisperBase: return "本机离线 · 速度与准确度平衡 · 分段时间戳"
         case .whisperSmall: return "本机离线 · 更高准确度 · 分段时间戳 · 需要更多存储"
@@ -36,7 +39,7 @@ enum RecordingTranscriptionModel: String, CaseIterable, Identifiable, Codable, H
     }
     var whisperModelName: String? {
         switch self {
-        case .appleSpeech: return nil
+        case .zipformer, .appleSpeech: return nil
         case .whisperTiny: return "tiny"
         case .whisperBase: return "base"
         case .whisperSmall: return "small"

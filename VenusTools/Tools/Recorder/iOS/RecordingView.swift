@@ -211,7 +211,7 @@ private struct RecordingModelsView: View {
     var body: some View {
         List {
             Section {
-                Text("实时字幕始终使用 Apple Speech。录音详情默认用 Apple Speech 本机转写；也可选 Whisper 本机模型，或主动配置并授权外部转写服务。分析服务只接收转写文字。")
+                Text("实时字幕使用 Apple Speech。录音详情默认使用内置中文模型生成全文，也可选择其他本机模型或主动授权外部转写服务。分析服务只接收转写文字。")
                     .font(.caption).foregroundStyle(AppTheme.secondary)
                 ModelBindingPanel(purpose: .recordingTranscription)
                 ModelBindingPanel(purpose: .recordingSummary)
@@ -282,9 +282,10 @@ private struct RecordingDetailView: View {
     let recordingID: UUID
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var modelRegistry = ModelRegistry.shared
-    @AppStorage("recording.transcription.model") private var selectedModelRawValue = RecordingTranscriptionModel.appleSpeech.rawValue
+    @AppStorage("recording.transcription.fullAudioModel") private var selectedModelRawValue = RecordingTranscriptionModel.zipformer.rawValue
     @State private var confirmDelete = false
     @State private var showingTranscript = true
+    @State private var showingTranscriptTimeline = false
     @State private var showingModelPicker = false
     @State private var analysisMessages: [RecordingAnalysisMessage] = []
     @State private var analysisDraft = ""
@@ -297,11 +298,11 @@ private struct RecordingDetailView: View {
     private var item: VoiceRecording? { store.recording(recordingID) }
     private var isWorking: Bool { store.workingID == recordingID }
     private var selectedModel: RecordingTranscriptionModel {
-        RecordingTranscriptionModel(rawValue: selectedModelRawValue) ?? .appleSpeech
+        RecordingTranscriptionModel(rawValue: selectedModelRawValue) ?? .zipformer
     }
     private var selectedModelBinding: Binding<RecordingTranscriptionModel> {
         Binding(
-            get: { RecordingTranscriptionModel(rawValue: selectedModelRawValue) ?? .appleSpeech },
+            get: { selectedModel },
             set: { selectedModelRawValue = $0.rawValue }
         )
     }
@@ -437,7 +438,7 @@ private struct RecordingDetailView: View {
                 Button {
                     Task { await store.transcribe(item, model: selectedModel) }
                 } label: {
-                    Label(isWorking ? "处理中…" : "重新生成", systemImage: "arrow.clockwise")
+                    Label(isWorking ? "处理中…" : "转成文字", systemImage: "doc.text")
                         .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity).padding(.vertical, 11)
                         .foregroundStyle(.white).background(AppTheme.pine, in: Capsule())
                 }
@@ -461,7 +462,7 @@ private struct RecordingDetailView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text("概览").font(.system(size: 18, weight: .semibold, design: .serif)).foregroundStyle(AppTheme.ink)
                 currentModelOverview
-                Text("说话人分离和声线估计在本机完成；首次使用会下载约 41 MB 模型。")
+                Text("说话人分离和声线估计使用内置模型，在本机完成。")
                     .font(.caption).foregroundStyle(AppTheme.secondary)
                 if item.speakerProfiles.isEmpty {
                     if let count = item.speakerCount {
@@ -515,19 +516,28 @@ private struct RecordingDetailView: View {
 
             Divider().overlay(AppTheme.line)
             VStack(alignment: .leading, spacing: 8) {
-                Text("具体转写").font(.system(size: 18, weight: .semibold, design: .serif)).foregroundStyle(AppTheme.ink)
+                let lines = timelineLines(for: item)
+                HStack {
+                    Text("转写全文").font(.system(size: 18, weight: .semibold, design: .serif)).foregroundStyle(AppTheme.ink)
+                    if lines.count > 1 || (!lines.isEmpty && item.speakerTranscript != nil) {
+                        Spacer()
+                        Button(showingTranscriptTimeline ? "查看全文" : "播放时间轴") {
+                            showingTranscriptTimeline.toggle()
+                        }
+                        .font(.caption.weight(.semibold)).foregroundStyle(AppTheme.pine)
+                    }
+                }
                 if item.transcriptLines.isEmpty, item.speakerTranscript == nil, !item.transcript.isEmpty,
                    selectedModel == .configuredService {
                     Text("自定义服务没有提供时间戳。生成说话人时间轴后，可逐句点击定位播放。")
                         .font(.caption).foregroundStyle(AppTheme.secondary)
                 }
-                if item.transcriptForAnalysis.isEmpty {
+                if item.transcript.isEmpty && lines.isEmpty {
                     Text("还没有转写文字。开始转写后，全文会显示在这里。")
                         .font(.subheadline).foregroundStyle(AppTheme.secondary)
                 } else {
-                    let lines = timelineLines(for: item)
-                    if lines.isEmpty {
-                        Text(item.speakerTranscript ?? item.transcript)
+                    if !showingTranscriptTimeline || lines.isEmpty {
+                        Text(item.transcript.isEmpty ? (item.speakerTranscript ?? "") : item.transcript)
                             .font(.system(size: 15)).foregroundStyle(AppTheme.ink)
                             .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
                     } else {

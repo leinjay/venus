@@ -57,6 +57,8 @@
 		BF1000000000000000000007 /* SpeakerDiarizationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF1000000000000000000006 /* SpeakerDiarizationService.swift */; };
 		B90000000000000000000003 = {isa = PBXBuildFile; productRef = A90000000000000000000004; };
 		BF1000000000000000000008 /* WhisperKitTranscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF1000000000000000000007 /* WhisperKitTranscriptionService.swift */; };
+		BF1000000000000000000009 /* ZipformerTranscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF1000000000000000000008 /* ZipformerTranscriptionService.swift */; };
+		BF100000000000000000000A /* RecorderModels in Resources */ = {isa = PBXBuildFile; fileRef = AF1000000000000000000009 /* RecorderModels */; };
 		B90000000000000000000004 = {isa = PBXBuildFile; productRef = A90000000000000000000007; };
 /* End PBXBuildFile section */
 
@@ -126,6 +128,8 @@
 		AF1000000000000000000005 /* WatchRecordingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VenusTools/Tools/Recorder/Watch/WatchRecordingView.swift"; sourceTree = SOURCE_ROOT; };
 		AF1000000000000000000006 /* SpeakerDiarizationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VenusTools/Tools/Recorder/iOS/SpeakerDiarizationService.swift"; sourceTree = SOURCE_ROOT; };
 		AF1000000000000000000007 /* WhisperKitTranscriptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VenusTools/Tools/Recorder/iOS/WhisperKitTranscriptionService.swift"; sourceTree = SOURCE_ROOT; };
+		AF1000000000000000000008 /* ZipformerTranscriptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VenusTools/Tools/Recorder/iOS/ZipformerTranscriptionService.swift"; sourceTree = SOURCE_ROOT; };
+		AF1000000000000000000009 /* RecorderModels */ = {isa = PBXFileReference; lastKnownFileType = folder; path = VenusTools/iOS/Resources/RecorderModels; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -166,6 +170,8 @@
 				AF1000000000000000000005 /* WatchRecordingView.swift */,
 				AF1000000000000000000006 /* SpeakerDiarizationService.swift */,
 				AF1000000000000000000007 /* WhisperKitTranscriptionService.swift */,
+				AF1000000000000000000008 /* ZipformerTranscriptionService.swift */,
+				AF1000000000000000000009 /* RecorderModels */,
 			);
 			name = Recorder;
 			sourceTree = "<group>";
@@ -346,7 +352,7 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		E10000000000000000000003 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (B92000000000000000000001, B93000000000000000000001, ); runOnlyForDeploymentPostprocessing = 0; };
+		E10000000000000000000003 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (B92000000000000000000001, B93000000000000000000001, BF100000000000000000000A, ); runOnlyForDeploymentPostprocessing = 0; };
 		E10000000000000000000007 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (B94000000000000000000001, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
@@ -385,6 +391,7 @@
 				BF1000000000000000000007 /* SpeakerDiarizationService.swift in Sources */,
 				BF1000000000000000000004 /* RecordingView.swift in Sources */,
 				BF1000000000000000000008 /* WhisperKitTranscriptionService.swift in Sources */,
+				BF1000000000000000000009 /* ZipformerTranscriptionService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

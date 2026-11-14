@@ -27,6 +27,9 @@ jobs:
       - name: Test iPhone-only packaging
         run: python3 -m unittest discover -s Tests/Packaging -v
 
+      - name: Prepare bundled recording models
+        run: python3 scripts/prepare_recorder_models.py
+
       - name: Build iOS app and Watch companion
         run: >-
           xcodebuild
@@ -44,6 +47,9 @@ jobs:
           test -d "$APP_PATH"
           test -d "$APP_PATH/Watch/VenusToolsWatch.app"
           test -f "$APP_PATH/mlx-swift_Cmlx.bundle/default.metallib"
+          for MODEL in zipformer-model.int8.onnx zipformer-tokens.txt segmentation.int8.onnx speaker-embedding.zh.onnx; do
+            test -s "$APP_PATH/RecorderModels/$MODEL"
+          done
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/VenusTools.app
           /usr/bin/ditto -c -k --sequesterRsrc --keepParent Payload VenusTools-iPhone-Watch-unsigned.ipa
