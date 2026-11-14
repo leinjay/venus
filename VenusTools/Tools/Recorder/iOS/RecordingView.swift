@@ -594,14 +594,15 @@ private struct RecordingDetailView: View {
     @ViewBuilder
     private var currentModelOverview: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Label(selectedModel.title, systemImage: selectedModel == .configuredService ? "cloud" : "iphone")
+            Label(modelRegistry.selected(.recordingTranscription)?.name ?? "Apple Speech", systemImage: modelRegistry.selected(.recordingTranscription)?.execution == .thirdParty ? "cloud" : "iphone")
                 .font(.subheadline.weight(.semibold)).foregroundStyle(AppTheme.pine)
-            Text(selectedModel.detail).font(.caption).foregroundStyle(AppTheme.secondary)
+            Text(modelRegistry.selected(.recordingTranscription)?.execution == .onDevice ? "本机离线转写" : selectedModel.detail)
+                .font(.caption).foregroundStyle(AppTheme.secondary)
             if selectedModel == .configuredService, let config = modelRegistry.selected(.recordingTranscription) {
                 Text("\(config.provider) · \(config.modelID) · \(config.execution.title)")
                     .font(.caption).foregroundStyle(AppTheme.secondary)
             }
-            Text(selectedModel == .configuredService
+            Text(selectedModel == .configuredService && modelRegistry.selected(.recordingTranscription)?.execution != .onDevice
                  ? "自定义服务负责音频识别；时间轴和说话人分析仍在本机完成。"
                  : "实时字幕固定使用 Apple Speech；说话人分离和声线估计在本机完成。")
                 .font(.caption).foregroundStyle(AppTheme.secondary)

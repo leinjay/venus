@@ -62,6 +62,10 @@ struct ModelListView: View {
                 Button("导入加密初始化文件") { importer = true }
             }
             Section("已保存模型 · \(registry.configurations.count)") {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Apple Speech").font(.headline)
+                    Text("离线 · 语音 · 大小由系统管理").font(.caption).foregroundStyle(AppTheme.pine)
+                }
                 if registry.configurations.isEmpty { Text("添加第一个具名配置，工具即可按名称选择。") }
                 ForEach(registry.configurations) { config in
                     if ModelConfiguration.localSpeechIDs.contains(config.modelID) {
@@ -73,7 +77,7 @@ struct ModelListView: View {
                             HStack(spacing: 8) {
                                 Text(config.execution == .onDevice ? "离线" : "在线")
                                 Text(config.adapter == .transcription ? "语音" : (config.textCapable ? "文字" : (config.modelID == "whisper-small" ? "语音" : "图像")))
-                                Text(config.execution == .onDevice ? "大小见模型资源" : "云端 · 无本地大小")
+                                Text(config.execution == .onDevice && config.modelID == LocalQwenService.modelID ? "约 985 MB" : (config.execution == .onDevice ? "大小未知" : "云端 · 无本地大小"))
                             }.font(.caption2).foregroundStyle(AppTheme.pine)
                             Text("\(config.execution.title) · \(config.provider)").font(.caption)
                             Text(config.modelID).font(.caption2).foregroundStyle(.secondary)

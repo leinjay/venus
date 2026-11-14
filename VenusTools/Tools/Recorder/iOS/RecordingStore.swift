@@ -681,7 +681,12 @@ final class RecordingStore: NSObject, ObservableObject, AVAudioPlayerDelegate {
                 workingMessage = urls.count == 1
                     ? "正在整理完整录音的离线转写…"
                     : "正在整理第 \(index + 1)/\(urls.count) 段录音…"
-                transcripts.append(try await Self.transcribeTimestampedOnDevice(url))
+                if let selected = ModelRegistry.shared.selected(.recordingTranscription),
+                   selected.execution == .onDevice, ModelConfiguration.localSpeechIDs.contains(selected.modelID) {
+                    transcripts.append(try await OfflineSpeechTranscription.transcribe(url, modelID: selected.modelID))
+                } else {
+                    transcripts.append(try await Self.transcribeTimestampedOnDevice(url))
+                }
             }
             guard transcripts.contains(where: { !$0.text.isEmpty }) else { return }
             guard let index = recordings.firstIndex(where: { $0.id == targetID }),
