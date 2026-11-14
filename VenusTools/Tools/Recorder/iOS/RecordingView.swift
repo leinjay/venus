@@ -11,13 +11,6 @@ struct RecordingView: View {
 
                     recorderCard
 
-                    NavigationLink { RecordingAnalysisHistoryView(store: store) } label: {
-                        Label("分析历史", systemImage: "text.bubble")
-                            .font(.subheadline.weight(.semibold)).foregroundStyle(AppTheme.pine)
-                            .frame(maxWidth: .infinity, alignment: .leading).padding(14)
-                            .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 17))
-                    }
-
                     if !store.recordings.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
@@ -157,6 +150,10 @@ struct RecordingView: View {
 
 struct RecordingAnalysisHistoryView: View {
     @ObservedObject var store: RecordingStore
+    var recordingID: UUID? = nil
+    private var archives: [RecordingAnalysisArchive] {
+        store.analysisHistory.filter { recordingID == nil || $0.recordingID == recordingID }
+    }
 
     var body: some View {
         NavigationStack {
@@ -164,12 +161,12 @@ struct RecordingAnalysisHistoryView: View {
                 BrandHeader(eyebrow: "VOICE LIBRARY", title: "分析历史", subtitle: "保存的转写与分析都在这里。")
                     .padding(.horizontal, 20)
                     .padding(.top, 14)
-                if store.analysisHistory.isEmpty {
+                if archives.isEmpty {
                     ContentUnavailableView("还没有分析历史", systemImage: "text.bubble", description: Text("在录音详情里完成分析并保存后，会出现在这里。"))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     List {
-                        ForEach(store.analysisHistory) { archive in
+                        ForEach(archives) { archive in
                             NavigationLink {
                                 RecordingAnalysisArchiveDetail(archive: archive)
                             } label: {
@@ -219,6 +216,14 @@ private struct RecordingModelsView: View {
         List {
             Section {
                 Text("实时字幕使用 Apple Speech。录音详情默认使用内置中文模型生成全文，也可选择其他本机模型或主动授权外部转写服务。分析服务只接收转写文字。")
+                    .font(.caption).foregroundStyle(AppTheme.secondary)
+                NavigationLink { ModelConfigurationEditor() } label: {
+                    Label("添加在线模型配置", systemImage: "plus.circle")
+                }
+                NavigationLink { ModelListView() } label: {
+                    Label("管理已配置的模型", systemImage: "slider.horizontal.3")
+                }
+                Text("添加模型后，在下面为录音转文字或录音分析选择模型，再确认发送范围。")
                     .font(.caption).foregroundStyle(AppTheme.secondary)
                 ModelBindingPanel(purpose: .recordingTranscription)
                 ModelBindingPanel(purpose: .recordingSummary)
@@ -281,6 +286,11 @@ private struct RecordingTranscriptionModelPicker: View {
                 }
             }
             Section("自定义服务") {
+                NavigationLink { ModelConfigurationEditor() } label: {
+                    Label("添加在线模型", systemImage: "plus.circle")
+                        .foregroundStyle(AppTheme.pine)
+                }
+                .listRowBackground(AppTheme.surface)
                 if registry.selected(.recordingTranscription) != nil {
                     Button { selection = .configuredService; dismiss() } label: {
                         modelRow(.configuredService)
@@ -488,6 +498,17 @@ private struct RecordingDetailView: View {
                 }
             }
 
+            NavigationLink {
+                RecordingAnalysisHistoryView(store: store, recordingID: item.id)
+            } label: {
+                HStack {
+                    Label("分析历史", systemImage: "clock.arrow.circlepath")
+                    Spacer()
+                    Text("\(store.analysisHistory.filter { $0.recordingID == item.id }.count) 条")
+                    Image(systemName: "chevron.right")
+                }.font(.caption.weight(.semibold)).foregroundStyle(AppTheme.pine)
+            }.buttonStyle(.plain)
+
             Divider().overlay(AppTheme.line)
             VStack(alignment: .leading, spacing: 10) {
                 Text("概览").font(.system(size: 18, weight: .semibold, design: .serif)).foregroundStyle(AppTheme.ink)
@@ -547,16 +568,16 @@ private struct RecordingDetailView: View {
             Divider().overlay(AppTheme.line)
             VStack(alignment: .leading, spacing: 8) {
                 let lines = timelineLines(for: item)
-                HStack {
-                    Text("转写全文").font(.system(size: 18, weight: .semibold, design: .serif)).foregroundStyle(AppTheme.ink)
-                    Spacer()
-                    if lines.count > 1 || (!lines.isEmpty && item.speakerTranscript != nil) {
-                        Button(showingTranscriptTimeline ? "查看全文" : "播放时间轴") {
-                            showingTranscriptTimeline.toggle()
-                        }
-                        .font(.caption.weight(.semibold)).foregroundStyle(AppTheme.pine)
+                HStack(spacing: 10) {
+                    Button {
+                        showingTranscriptTimeline.toggle()
+                    } label: {
+                        Label(showingTranscriptTimeline ? "查看全文" : "播放时间轴", systemImage: "waveform.path")
+                            .font(.caption.weight(.semibold)).frame(maxWidth: .infinity).padding(.vertical, 10)
+                            .foregroundStyle(AppTheme.pine).background(AppTheme.sage, in: Capsule())
                     }
-                    Button("录音分析") {
+                    .disabled(lines.isEmpty)
+                    Button {
                         showingTranscript = false
                         if analysisMessages.isEmpty {
                             if !item.summary.isEmpty {
@@ -565,23 +586,14 @@ private struct RecordingDetailView: View {
                                 sendAnalysisPrompt("请分析这段录音，概括主要内容、关键主题、决定和待办。", for: item)
                             }
                         }
-                    }
-                    .font(.caption.weight(.semibold)).foregroundStyle(AppTheme.pine)
-                    .disabled(item.transcriptForAnalysis.isEmpty || item.hasUntranscribedSupplement || isWorking)
-                }
-                let archives = store.analysisHistory.filter { $0.recordingID == item.id }
-                if !archives.isEmpty {
-                    Menu {
-                        ForEach(archives) { archive in
-                            NavigationLink { RecordingAnalysisArchiveDetail(archive: archive) } label: {
-                                Text(archive.savedAt.formatted(date: .abbreviated, time: .shortened))
-                            }
-                        }
                     } label: {
-                        Label("本录音的分析历史（\(archives.count)）", systemImage: "clock.arrow.circlepath")
-                            .font(.caption.weight(.semibold)).foregroundStyle(AppTheme.pine)
+                        Label("录音分析", systemImage: "bubble.left.and.bubble.right")
+                            .font(.caption.weight(.semibold)).frame(maxWidth: .infinity).padding(.vertical, 10)
+                            .foregroundStyle(.white).background(AppTheme.pine, in: Capsule())
                     }
-                }
+                    .disabled(item.transcriptForAnalysis.isEmpty || item.hasUntranscribedSupplement || isWorking)
+                }.buttonStyle(.plain)
+                Text("转写全文").font(.system(size: 18, weight: .semibold, design: .serif)).foregroundStyle(AppTheme.ink)
                 if item.transcriptLines.isEmpty, item.speakerTranscript == nil, !item.transcript.isEmpty,
                    selectedModel == .configuredService {
                     Text("自定义服务没有提供时间戳。生成说话人时间轴后，可逐句点击定位播放。")

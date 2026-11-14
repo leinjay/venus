@@ -16,9 +16,22 @@ actor WhisperKitTranscriptionService {
         guard let name = model.whisperModelName else { throw ModelFailure("模型类型无效。") }
         pipeline = nil
         loadedModelName = nil
-        let config = WhisperKitConfig(model: name, modelFolder: folder.path, tokenizerFolder: tokenizerFolder,
-                                      verbose: false, load: true, download: false)
-        pipeline = try await WhisperKit(config)
+        func config(_ compute: ModelComputeOptions? = nil) -> WhisperKitConfig {
+            WhisperKitConfig(model: name, modelFolder: folder.path, tokenizerFolder: tokenizerFolder,
+                             computeOptions: compute, verbose: false, load: true, download: false)
+        }
+        do {
+            pipeline = try await WhisperKit(config())
+        } catch {
+            let initialError = error.localizedDescription
+            do {
+                pipeline = try await WhisperKit(config(ModelComputeOptions(
+                    melCompute: .cpuOnly, audioEncoderCompute: .cpuOnly, textDecoderCompute: .cpuOnly
+                )))
+            } catch {
+                throw ModelFailure("\(model.title) 加载失败。默认方式：\(initialError)；CPU 重试：\(error.localizedDescription)。请检查可用空间或删除后重新下载。")
+            }
+        }
         loadedModelName = name
     }
 
@@ -32,9 +45,7 @@ actor WhisperKitTranscriptionService {
             let folder = await WhisperModelDownloads.shared.modelFolder(for: model)
             guard let folder else { throw ModelFailure("请先在模型列表下载 \(model.title)。") }
             let tokenizerFolder = await WhisperModelDownloads.shared.tokenizerFolder(for: model)
-            let config = WhisperKitConfig(model: modelName, modelFolder: folder.path, tokenizerFolder: tokenizerFolder, verbose: false, load: true, download: false, useBackgroundDownloadSession: true)
-            pipeline = try await WhisperKit(config)
-            loadedModelName = modelName
+            try await prepare(model: model, folder: folder, tokenizerFolder: tokenizerFolder)
         }
         guard let pipeline else { throw ModelFailure("Whisper 模型加载失败，请重试。") }
 
@@ -87,7 +98,12 @@ final class WhisperModelDownloads: ObservableObject {
         }
         guard let folder else { return nil }
         let files = ["AudioEncoder.mlmodelc", "TextDecoder.mlmodelc", "MelSpectrogram.mlmodelc"]
-        return files.allSatisfy { FileManager.default.fileExists(atPath: folder.appendingPathComponent($0).path) } ? folder : nil
+        let complete = files.allSatisfy { name in
+            let path = folder.appendingPathComponent(name)
+            return FileManager.default.fileExists(atPath: path.appendingPathComponent("coremldata.bin").path)
+                && FileManager.default.fileExists(atPath: path.appendingPathComponent("weights/weight.bin").path)
+        }
+        return complete ? folder : nil
     }
 
     func size(for model: RecordingTranscriptionModel) -> Int64 {
