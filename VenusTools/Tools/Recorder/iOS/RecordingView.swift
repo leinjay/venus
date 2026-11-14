@@ -11,6 +11,13 @@ struct RecordingView: View {
 
                     recorderCard
 
+                    NavigationLink { RecordingAnalysisHistoryView(store: store) } label: {
+                        Label("分析历史", systemImage: "text.bubble")
+                            .font(.subheadline.weight(.semibold)).foregroundStyle(AppTheme.pine)
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(14)
+                            .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 17))
+                    }
+
                     if !store.recordings.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
@@ -227,14 +234,48 @@ private struct RecordingModelsView: View {
 private struct RecordingTranscriptionModelPicker: View {
     @Binding var selection: RecordingTranscriptionModel
     @ObservedObject private var registry = ModelRegistry.shared
+    @ObservedObject private var downloads = WhisperModelDownloads.shared
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         List {
             Section("本机识别") {
                 ForEach(RecordingTranscriptionModel.allCases.filter { $0 != .configuredService }) { model in
-                    Button { selection = model; dismiss() } label: {
-                        modelRow(model)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 8) {
+                            Button { selection = model; dismiss() } label: {
+                                modelRow(model)
+                            }.buttonStyle(.plain)
+                            if model == .zipformer {
+                                Text("已内置 · 26.36 MB").font(.caption2).foregroundStyle(AppTheme.secondary)
+                            } else if model == .appleSpeech {
+                                Text("系统管理").font(.caption2).foregroundStyle(AppTheme.secondary)
+                            } else if downloads.modelFolder(for: model) != nil {
+                                VStack(alignment: .trailing, spacing: 4) {
+                                    Text("已下载").font(.caption2).foregroundStyle(AppTheme.pine)
+                                    Text(ByteCountFormatter.string(fromByteCount: downloads.size(for: model), countStyle: .file))
+                                        .font(.caption2).foregroundStyle(AppTheme.secondary)
+                                    Button(role: .destructive) { Task { await downloads.remove(model) } } label: {
+                                        Image(systemName: "trash")
+                                    }.buttonStyle(.plain).accessibilityLabel("删除 \(model.title)")
+                                }
+                            } else if downloads.progress[model] == nil {
+                                Button { Task { await downloads.download(model) } } label: {
+                                    Image(systemName: "arrow.down.circle").font(.title3).foregroundStyle(AppTheme.pine)
+                                }.buttonStyle(.plain).accessibilityLabel("下载 \(model.title)")
+                            }
+                        }
+                        if model.whisperModelName != nil {
+                            Text("来源：Hugging Face（中国境外）").font(.caption2).foregroundStyle(AppTheme.secondary)
+                        }
+                        if let progress = downloads.progress[model] {
+                            ProgressView(value: progress).tint(.blue)
+                            Text("下载中 \(Int(progress * 100))%").font(.caption2).foregroundStyle(AppTheme.secondary)
+                        }
+                        if let error = downloads.errors[model] {
+                            Text("下载或删除失败：\(error)").font(.caption2).foregroundStyle(AppTheme.terracotta)
+                                .textSelection(.enabled)
+                        }
                     }
                     .listRowBackground(AppTheme.surface)
                 }
@@ -251,6 +292,13 @@ private struct RecordingTranscriptionModelPicker: View {
                         .foregroundStyle(AppTheme.pine)
                 }
                 .listRowBackground(AppTheme.surface)
+            }
+            Section("在线服务参考") {
+                Link("DeepSeek ASR · 录音转文字", destination: URL(string: "https://api-docs.deepseek.com/guides/asr/")!)
+                Link("通义千问 Qwen-ASR · 音频转文字", destination: URL(string: "https://help.aliyun.com/en/model-studio/asr-model")!)
+                Link("OpenAI 语音转文字 · 境外服务", destination: URL(string: "https://platform.openai.com/docs/guides/speech-to-text")!)
+                Text("DeepSeek V4 可分析转写文字；DeepSeek ASR 使用独立语音接口。在线服务需配置账号、费用及音频外发授权。")
+                    .font(.caption).foregroundStyle(AppTheme.secondary)
             }
         }
         .scrollContentBackground(.hidden)
@@ -334,30 +382,11 @@ private struct RecordingDetailView: View {
                             }.accessibilityLabel("删除录音")
                         }
 
-                        Button {
-                            if showingTranscript {
-                                showingTranscript = false
-                                if analysisMessages.isEmpty {
-                                    if !item.summary.isEmpty {
-                                        analysisMessages = [RecordingAnalysisMessage(role: .assistant, text: item.summary)]
-                                    } else {
-                                        sendAnalysisPrompt("请分析这段录音，概括主要内容、关键主题、决定和待办。", for: item)
-                                    }
-                                }
-                            } else {
-                                showingTranscript = true
-                            }
-                        } label: {
-                            Label(showingTranscript ? "录音分析" : "查看转写", systemImage: showingTranscript ? "bubble.left.and.bubble.right" : "text.alignleft")
-                                .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity).padding(.vertical, 12)
-                                .foregroundStyle(AppTheme.pine).background(AppTheme.sage, in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(showingTranscript && (item.transcriptForAnalysis.isEmpty || item.hasUntranscribedSupplement || isWorking))
-
                         if showingTranscript {
                             transcriptPanel(item)
                         } else {
+                            Button("返回转写") { showingTranscript = true }
+                                .font(.subheadline.weight(.semibold)).foregroundStyle(AppTheme.pine)
                             analysisPanel(item)
                         }
                     }
@@ -444,9 +473,10 @@ private struct RecordingDetailView: View {
                 }
                 .disabled(isWorking)
                 Button { showingModelPicker = true } label: {
-                    Label("选择模型", systemImage: "slider.horizontal.3")
+                    Label(selectedModel.title, systemImage: "slider.horizontal.3")
                         .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity).padding(.vertical, 11)
                         .foregroundStyle(AppTheme.pine).background(AppTheme.sage, in: Capsule())
+                        .lineLimit(1).minimumScaleFactor(0.75)
                 }
             }
             .buttonStyle(.plain)
@@ -519,12 +549,37 @@ private struct RecordingDetailView: View {
                 let lines = timelineLines(for: item)
                 HStack {
                     Text("转写全文").font(.system(size: 18, weight: .semibold, design: .serif)).foregroundStyle(AppTheme.ink)
+                    Spacer()
                     if lines.count > 1 || (!lines.isEmpty && item.speakerTranscript != nil) {
-                        Spacer()
                         Button(showingTranscriptTimeline ? "查看全文" : "播放时间轴") {
                             showingTranscriptTimeline.toggle()
                         }
                         .font(.caption.weight(.semibold)).foregroundStyle(AppTheme.pine)
+                    }
+                    Button("录音分析") {
+                        showingTranscript = false
+                        if analysisMessages.isEmpty {
+                            if !item.summary.isEmpty {
+                                analysisMessages = [RecordingAnalysisMessage(role: .assistant, text: item.summary)]
+                            } else {
+                                sendAnalysisPrompt("请分析这段录音，概括主要内容、关键主题、决定和待办。", for: item)
+                            }
+                        }
+                    }
+                    .font(.caption.weight(.semibold)).foregroundStyle(AppTheme.pine)
+                    .disabled(item.transcriptForAnalysis.isEmpty || item.hasUntranscribedSupplement || isWorking)
+                }
+                let archives = store.analysisHistory.filter { $0.recordingID == item.id }
+                if !archives.isEmpty {
+                    Menu {
+                        ForEach(archives) { archive in
+                            NavigationLink { RecordingAnalysisArchiveDetail(archive: archive) } label: {
+                                Text(archive.savedAt.formatted(date: .abbreviated, time: .shortened))
+                            }
+                        }
+                    } label: {
+                        Label("本录音的分析历史（\(archives.count)）", systemImage: "clock.arrow.circlepath")
+                            .font(.caption.weight(.semibold)).foregroundStyle(AppTheme.pine)
                     }
                 }
                 if item.transcriptLines.isEmpty, item.speakerTranscript == nil, !item.transcript.isEmpty,

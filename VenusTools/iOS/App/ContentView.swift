@@ -34,9 +34,6 @@ struct ContentView: View {
             RecordingView(store: recordingStore)
                 .tabItem { Label("录音", systemImage: "waveform") }
                 .tag(1)
-            RecordingAnalysisHistoryView(store: recordingStore)
-                .tabItem { Label("分析历史", systemImage: "text.bubble") }
-                .tag(2)
             SettingsView()
                 .tabItem { Label("设置", systemImage: "gearshape") }
                 .tag(3)
