@@ -25,6 +25,8 @@ struct ContentView: View {
     @StateObject private var navigation = AppNavigation()
     @StateObject private var reminderStore = ReminderStore()
     @StateObject private var recordingStore = RecordingStore()
+    @AppStorage("recording.transcription.bindingMigrated") private var recordingBindingMigrated = false
+    @AppStorage("recording.transcription.fullAudioModel") private var previousRecordingModel = "appleSpeech"
 
     var body: some View {
         TabView(selection: $navigation.selectedTab) {
@@ -40,7 +42,19 @@ struct ContentView: View {
         }
         .id(skin)
         .environmentObject(navigation)
-        .onAppear { reminderStore.updateWatchRecordingTargets(recordingStore.watchRecordingTargets) }
+        .onAppear {
+            reminderStore.updateWatchRecordingTargets(recordingStore.watchRecordingTargets)
+            if !recordingBindingMigrated {
+                do {
+                    if previousRecordingModel != "configuredService" {
+                        try ModelRegistry.shared.bind(nil, to: .recordingTranscription)
+                    }
+                    recordingBindingMigrated = true
+                } catch {
+                    recordingStore.errorMessage = "录音模型设置迁移失败：\(error.localizedDescription)"
+                }
+            }
+        }
         .onChange(of: recordingStore.watchRecordingTargets) { _, targets in reminderStore.updateWatchRecordingTargets(targets) }
         .onChange(of: reminderStore.notificationTaskID) { _, id in if id != nil { navigation.selectedTab = 0 } }
         .tint(AppTheme.pine)
