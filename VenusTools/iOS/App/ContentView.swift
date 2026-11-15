@@ -32,18 +32,20 @@ struct ContentView: View {
     var body: some View {
         TabView(selection: $navigation.selectedTab) {
             RemindersView(store: reminderStore)
+                .safeAreaInset(edge: .bottom, spacing: 0) { ModelDownloadBar() }
                 .tabItem { Label("任务", systemImage: "bell") }
                 .tag(0)
             RecordingView(store: recordingStore)
+                .safeAreaInset(edge: .bottom, spacing: 0) { ModelDownloadBar() }
                 .tabItem { Label("录音", systemImage: "waveform") }
                 .tag(1)
             SettingsView()
+                .safeAreaInset(edge: .bottom, spacing: 0) { ModelDownloadBar() }
                 .tabItem { Label("设置", systemImage: "gearshape") }
                 .tag(3)
         }
         .id(skin)
         .background(KeyboardOutsideTap().allowsHitTesting(false))
-        .safeAreaInset(edge: .bottom, spacing: 0) { ModelDownloadBar() }
         .environmentObject(navigation)
         .onAppear {
             reminderStore.updateWatchRecordingTargets(recordingStore.watchRecordingTargets)

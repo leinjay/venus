@@ -82,6 +82,7 @@ final class LocalQwenService: ObservableObject {
     @Published private(set) var status = "Qwen3 尚未准备"
     private let engine = LocalQwenEngine()
     private var downloadTask: Task<Void, Never>?
+    private var backgroundRequests: [URLRequest] = []
     let directory: URL
 
     private init() {
@@ -89,13 +90,21 @@ final class LocalQwenService: ObservableObject {
         ready = (try? String(contentsOf: directory.appendingPathComponent("verified"), encoding: .utf8)) == Self.revision
             && Self.files.allSatisfy { file in (try? directory.appendingPathComponent(file.name).resourceValues(forKeys: [.fileSizeKey]).fileSize) == Int(file.size) }
         if ready { status = "Qwen3 已就绪 · 本机离线处理" }
+        if UserDefaults.standard.bool(forKey: "models.qwen.pending") {
+            Task { self.download(allowsCellular: UserDefaults.standard.bool(forKey: "models.qwen.cellular")) }
+        }
     }
 
     func download(allowsCellular: Bool = false) {
         guard !preparing, !generating else { return }
         preparing = true
+        UserDefaults.standard.set(true, forKey: "models.qwen.pending")
+        UserDefaults.standard.set(allowsCellular, forKey: "models.qwen.cellular")
         downloadTask = Task {
-            defer { preparing = false; downloadSpeed = 0 }
+            defer {
+                preparing = false; downloadSpeed = 0
+                UserDefaults.standard.set(false, forKey: "models.qwen.pending")
+            }
             do {
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
                 var resources = URLResourceValues(); resources.isExcludedFromBackup = true
@@ -110,6 +119,12 @@ final class LocalQwenService: ObservableObject {
                 defer { session.invalidateAndCancel() }
                 let total = Self.files.reduce(Int64(0)) { $0 + $1.size }
                 var completed: Int64 = 0
+                backgroundRequests = Self.files.filter { !FileManager.default.fileExists(atPath: directory.appendingPathComponent($0.name).path) }.map { file in
+                    var request = URLRequest(url: URL(string: "https://huggingface.co/\(Self.modelID)/resolve/\(Self.revision)/\(file.name)")!)
+                    request.allowsCellularAccess = allowsCellular
+                    return request
+                }
+                BackgroundModelTransfers.shared.enqueue(backgroundRequests)
                 for file in Self.files {
                     try Task.checkCancellation()
                     let target = directory.appendingPathComponent(file.name)
@@ -127,7 +142,10 @@ final class LocalQwenService: ObservableObject {
                     guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw TaskFailure("下载失败，请稍后重试") }
                     status = "正在校验 \(file.name)"
                     downloadSpeed = 0
-                    guard await Self.verified(temporary, file: file) else { throw TaskFailure("模型校验失败，请重新下载 \(file.name)") }
+                    guard await Self.verified(temporary, file: file) else {
+                        try? FileManager.default.removeItem(at: temporary)
+                        throw TaskFailure("模型校验失败，请重新下载 \(file.name)")
+                    }
                     try Task.checkCancellation()
                     if FileManager.default.fileExists(atPath: target.path) { try FileManager.default.removeItem(at: target) }
                     try FileManager.default.moveItem(at: temporary, to: target)
@@ -139,7 +157,10 @@ final class LocalQwenService: ObservableObject {
             catch { status = "\(error.localizedDescription) · 可重试" }
         }
     }
-    func cancelDownload() { downloadTask?.cancel() }
+    func cancelDownload() {
+        BackgroundModelTransfers.shared.cancel(backgroundRequests)
+        downloadTask?.cancel()
+    }
     func remove() async {
         guard !generating, !preparing else { return }
         await engine.unload()

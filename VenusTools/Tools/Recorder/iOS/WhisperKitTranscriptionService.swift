@@ -25,6 +25,11 @@ final class OfflineSpeechModels: ObservableObject {
     @Published private(set) var revision = 0
     private var active: Set<String> = []
 
+    private init() {
+        let pending = UserDefaults.standard.stringArray(forKey: "models.speech.pending") ?? []
+        Task { for id in pending { await self.download(id) } }
+    }
+
     private let specs: [String: SpeechModelSpec] = [
         ModelConfiguration.senseVoiceID: SpeechModelSpec(
             repository: "chris-cao/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17",
@@ -77,6 +82,9 @@ final class OfflineSpeechModels: ObservableObject {
 
     func download(_ id: String) async {
         guard let spec = specs[id], progress[id] == nil, !active.contains(id) else { return }
+        var pending = UserDefaults.standard.stringArray(forKey: "models.speech.pending") ?? []
+        if !pending.contains(id) { pending.append(id) }
+        UserDefaults.standard.set(pending, forKey: "models.speech.pending")
         progress[id] = 0
         speed[id] = 0
         errors[id] = nil
@@ -94,6 +102,10 @@ final class OfflineSpeechModels: ObservableObject {
             configuration.timeoutIntervalForResource = 3600
             let session = URLSession(configuration: configuration)
             defer { session.invalidateAndCancel() }
+            let requests = spec.files.filter { !FileManager.default.fileExists(atPath: dir.appendingPathComponent($0.path).path) }.map { file in
+                URLRequest(url: URL(string: "https://huggingface.co/\(spec.repository)/resolve/\(spec.revision)/\(file.path)")!)
+            }
+            BackgroundModelTransfers.shared.enqueue(requests)
             for file in spec.files {
                 try Task.checkCancellation()
                 let url = URL(string: "https://huggingface.co/\(spec.repository)/resolve/\(spec.revision)/\(file.path)")!
@@ -141,7 +153,10 @@ final class OfflineSpeechModels: ObservableObject {
                     speed[id] = 0
                     downloadStatus[id] = "正在校验 \(file.path)…"
                     let hash = try await Self.sha256(temporary)
-                    guard hash == expected else { throw ModelFailure("文件校验失败：\(file.path)，请重试。") }
+                    guard hash == expected else {
+                        try? FileManager.default.removeItem(at: temporary)
+                        throw ModelFailure("文件校验失败：\(file.path)，请重试。")
+                    }
                 }
                 try FileManager.default.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
                 if FileManager.default.fileExists(atPath: dest.path) { try FileManager.default.removeItem(at: dest) }
@@ -153,6 +168,8 @@ final class OfflineSpeechModels: ObservableObject {
         } catch {
             errors[id] = error.localizedDescription
         }
+        let remaining = (UserDefaults.standard.stringArray(forKey: "models.speech.pending") ?? []).filter { $0 != id }
+        UserDefaults.standard.set(remaining, forKey: "models.speech.pending")
         progress[id] = nil
         speed[id] = nil
         downloadStatus[id] = nil
@@ -189,83 +206,157 @@ final class OfflineSpeechModels: ObservableObject {
     func endUse(_ id: String) { active.remove(id) }
 }
 
-final class SpeechDownloadProgress: NSObject, URLSessionTaskDelegate, URLSessionDownloadDelegate, @unchecked Sendable {
-    private let callback: @Sendable (Int64, Double) -> Void
-    private var lastTime = Date()
-    private var lastBytes: Int64 = 0
-    private var continuation: CheckedContinuation<(URL, URLResponse), Error>?
-    private var savedURL: URL?
+// Files are scheduled together so transfers continue even while Swift tasks are suspended.
+final class BackgroundModelTransfers: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    static let shared = BackgroundModelTransfers()
+    static let identifier = "com.venus.model-downloads.v1"
+    private let lock = NSRecursiveLock()
+    private let root: URL
+    private var session: URLSession!
+    private var tasks: [String: URLSessionDownloadTask] = [:]
+    private var waiters: [String: CheckedContinuation<(URL, URLResponse), Error>] = [:]
+    private var updates: [String: @Sendable (Int64, Double) -> Void] = [:]
+    private var samples: [String: (Date, Int64)] = [:]
+    private var errors: [String: Error] = [:]
+    private var cancelledKeys = Set<String>()
     private var timer: DispatchSourceTimer?
-    private var session: URLSession?
-    private let cancellationLock = NSLock()
-    private var cancelled = false
-    private var downloadTask: URLSessionDownloadTask?
-    init(_ callback: @escaping @Sendable (Int64, Double) -> Void) { self.callback = callback }
-    func download(_ request: URLRequest, configuration: URLSessionConfiguration) async throws -> (URL, URLResponse) {
-        try await withTaskCancellationHandler {
-            try await performDownload(request, configuration: configuration)
-        } onCancel: { self.cancel() }
-    }
-    private func cancel() {
-        cancellationLock.lock()
-        cancelled = true
-        let task = downloadTask
-        cancellationLock.unlock()
-        task?.cancel()
-    }
-    private func performDownload(_ request: URLRequest, configuration: URLSessionConfiguration) async throws -> (URL, URLResponse) {
-        try Task.checkCancellation()
-        return try await withCheckedThrowingContinuation { continuation in
-            self.continuation = continuation
-            let queue = OperationQueue()
-            queue.maxConcurrentOperationCount = 1
-            let session = URLSession(configuration: configuration, delegate: self, delegateQueue: queue)
-            self.session = session
-            let task = session.downloadTask(with: request)
-            let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
-            timer.schedule(deadline: .now(), repeating: 1)
-            timer.setEventHandler { [weak self, weak task] in
-                guard let self, let task else { return }
-                queue.addOperation { self.report(task.countOfBytesReceived) }
+    private var backgroundCompletion: (() -> Void)?
+    private var restoring = true
+    private var restored: [() -> Void] = []
+
+    private override init() {
+        root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("ModelTransfers", isDirectory: true)
+        super.init()
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try? FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: root.path)
+        let configuration = URLSessionConfiguration.background(withIdentifier: Self.identifier)
+        configuration.sessionSendsLaunchEvents = true
+        configuration.isDiscretionary = false
+        configuration.waitsForConnectivity = true
+        configuration.httpMaximumConnectionsPerHost = 3
+        configuration.timeoutIntervalForResource = 7 * 24 * 3600
+        let queue = OperationQueue(); queue.maxConcurrentOperationCount = 1
+        session = URLSession(configuration: configuration, delegate: self, delegateQueue: queue)
+        session.getAllTasks { values in
+            self.lock.lock(); defer { self.lock.unlock() }
+            for case let task as URLSessionDownloadTask in values {
+                if let key = task.taskDescription { self.tasks[key] = task }
             }
-            self.timer = timer
-            timer.resume()
-            cancellationLock.lock()
-            downloadTask = task
-            let shouldCancel = cancelled
-            cancellationLock.unlock()
+            self.restoring = false
+            let actions = self.restored; self.restored = []
+            actions.forEach { $0() }
+        }
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        timer.schedule(deadline: .now(), repeating: 1)
+        timer.setEventHandler { [weak self] in self?.report() }
+        self.timer = timer; timer.resume()
+    }
+    private func key(_ url: URL) -> String {
+        SHA256.hash(data: Data(url.absoluteString.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+    private func file(_ key: String) -> URL { root.appendingPathComponent(key) }
+    func enqueue(_ requests: [URLRequest]) {
+        lock.lock(); defer { lock.unlock() }
+        if restoring { restored.append { self.enqueue(requests) }; return }
+        for request in requests {
+            guard let url = request.url else { continue }
+            let key = key(url)
+            guard tasks[key] == nil, !FileManager.default.fileExists(atPath: file(key).path) else { continue }
+            let task = session.downloadTask(with: request)
+            task.taskDescription = key; tasks[key] = task
             task.resume()
-            if shouldCancel { task.cancel() }
         }
     }
-    private func report(_ bytes: Int64) {
-        let now = Date()
-        let elapsed = now.timeIntervalSince(lastTime)
-        guard elapsed >= 0.5 else { return }
-        callback(bytes, Double(max(0, bytes - lastBytes)) / elapsed)
-        lastTime = now
-        lastBytes = bytes
+    func download(_ request: URLRequest, update: @escaping @Sendable (Int64, Double) -> Void) async throws -> (URL, URLResponse) {
+        guard let url = request.url else { throw ModelFailure("下载地址无效") }
+        let key = key(url)
+        return try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            return try await withCheckedThrowingContinuation { continuation in
+                self.attach(request, key: key, update: update, continuation: continuation)
+            }
+        } onCancel: {
+            self.lock.lock(); defer { self.lock.unlock() }
+            self.cancelledKeys.insert(key)
+            self.tasks[key]?.cancel()
+        }
     }
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
-                    didWriteData bytesWritten: Int64, totalBytesWritten: Int64,
-                    totalBytesExpectedToWrite: Int64) {
-        report(totalBytesWritten)
+    private func attach(_ request: URLRequest, key: String, update: @escaping @Sendable (Int64, Double) -> Void,
+                        continuation: CheckedContinuation<(URL, URLResponse), Error>) {
+        lock.lock(); defer { lock.unlock() }
+        if restoring {
+            restored.append { self.attach(request, key: key, update: update, continuation: continuation) }; return
+        }
+        if cancelledKeys.remove(key) != nil { continuation.resume(throwing: CancellationError()); return }
+        if let error = errors.removeValue(forKey: key) { continuation.resume(throwing: error); return }
+        if FileManager.default.fileExists(atPath: file(key).path) {
+            let status = Int((try? String(contentsOf: file(key + ".status"), encoding: .utf8)) ?? "200") ?? 200
+            let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
+            continuation.resume(returning: (file(key), response)); return
+        }
+        waiters[key] = continuation; updates[key] = update
+        enqueue([request])
+    }
+    func cancel(_ requests: [URLRequest]) {
+        lock.lock(); defer { lock.unlock() }
+        if restoring { restored.append { self.cancel(requests) }; return }
+        for request in requests { if let url = request.url { tasks[key(url)]?.cancel() } }
+    }
+    private func report() {
+        lock.lock(); defer { lock.unlock() }
+        let now = Date()
+        for (key, task) in tasks {
+            let bytes = task.countOfBytesReceived
+            let previous = samples[key] ?? (now, bytes)
+            let rate = Double(max(0, bytes - previous.1)) / max(0.1, now.timeIntervalSince(previous.0))
+            updates[key]?(bytes, rate)
+            samples[key] = (now, bytes)
+        }
     }
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        let destination = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        do { try FileManager.default.moveItem(at: location, to: destination); savedURL = destination }
-        catch { finish(.failure(error)) }
+        lock.lock(); defer { lock.unlock() }
+        guard let key = downloadTask.taskDescription else { return }
+        do {
+            let destination = file(key)
+            if FileManager.default.fileExists(atPath: destination.path) { try FileManager.default.removeItem(at: destination) }
+            try FileManager.default.moveItem(at: location, to: destination)
+            let status = (downloadTask.response as? HTTPURLResponse)?.statusCode ?? 0
+            guard (200..<300).contains(status) else {
+                try? FileManager.default.removeItem(at: destination)
+                errors[key] = ModelFailure("模型下载失败，HTTP \(status)")
+                return
+            }
+            try String(status).write(to: file(key + ".status"), atomically: true, encoding: .utf8)
+        } catch { errors[key] = error }
     }
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        if let error { finish(.failure(error)) }
-        else if let savedURL, let response = task.response { finish(.success((savedURL, response))) }
-        else { finish(.failure(ModelFailure("下载没有返回文件。"))) }
+        lock.lock(); defer { lock.unlock() }
+        guard let key = task.taskDescription else { return }
+        tasks[key] = nil; samples[key] = nil; updates[key] = nil
+        if let error { errors[key] = error }
+        if let waiter = waiters.removeValue(forKey: key) {
+            if let failure = errors.removeValue(forKey: key) { waiter.resume(throwing: failure) }
+            else if let response = task.response { waiter.resume(returning: (file(key), response)) }
+            else { waiter.resume(throwing: ModelFailure("下载没有返回文件")) }
+        }
     }
-    private func finish(_ result: Result<(URL, URLResponse), Error>) {
-        timer?.cancel(); timer = nil
-        let pending = continuation; continuation = nil
-        session?.finishTasksAndInvalidate(); session = nil
-        pending?.resume(with: result)
+    func reconnect(completion: @escaping () -> Void) {
+        lock.lock(); backgroundCompletion = completion; lock.unlock()
+    }
+    func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
+        lock.lock(); let completion = backgroundCompletion; backgroundCompletion = nil; lock.unlock()
+        DispatchQueue.main.async { completion?() }
+    }
+}
+
+final class SpeechDownloadProgress: @unchecked Sendable {
+    private let callback: @Sendable (Int64, Double) -> Void
+    init(_ callback: @escaping @Sendable (Int64, Double) -> Void) { self.callback = callback }
+    func download(_ request: URLRequest, configuration: URLSessionConfiguration) async throws -> (URL, URLResponse) {
+        var request = request
+        request.allowsCellularAccess = configuration.allowsCellularAccess
+        return try await BackgroundModelTransfers.shared.download(request, update: callback)
     }
 }
 
