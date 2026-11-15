@@ -263,6 +263,7 @@ final class BackgroundModelTransfers: NSObject, URLSessionDownloadDelegate, @unc
             guard let url = request.url else { continue }
             let key = key(url)
             guard tasks[key] == nil, !FileManager.default.fileExists(atPath: file(key).path) else { continue }
+            errors[key] = nil
             let task = session.downloadTask(with: request)
             task.taskDescription = key; tasks[key] = task
             task.resume()
@@ -278,7 +279,7 @@ final class BackgroundModelTransfers: NSObject, URLSessionDownloadDelegate, @unc
             }
         } onCancel: {
             self.lock.lock(); defer { self.lock.unlock() }
-            self.cancelledKeys.insert(key)
+            if self.waiters[key] == nil { self.cancelledKeys.insert(key) }
             self.tasks[key]?.cancel()
         }
     }
@@ -335,6 +336,7 @@ final class BackgroundModelTransfers: NSObject, URLSessionDownloadDelegate, @unc
         guard let key = task.taskDescription else { return }
         tasks[key] = nil; samples[key] = nil; updates[key] = nil
         if let error { errors[key] = error }
+        if waiters[key] == nil, (errors[key] as? URLError)?.code == .cancelled { errors[key] = nil }
         if let waiter = waiters.removeValue(forKey: key) {
             if let failure = errors.removeValue(forKey: key) { waiter.resume(throwing: failure) }
             else if let response = task.response { waiter.resume(returning: (file(key), response)) }
