@@ -344,27 +344,17 @@ private struct RecordingTranscriptionModelPicker: View {
     @Environment(\.dismiss) private var dismiss
     @State private var error: String?
 
+    private var selectableModels: [ModelConfiguration] {
+        registry.configurations.filter { config in
+            config.enabled && ModelPurpose.recordingTranscription.accepts(config)
+        }
+    }
+
     var body: some View {
         List {
             Section("语音转写模型") {
-                Button {
-                    do { try registry.bind(nil, to: .recordingTranscription); selection = .appleSpeech; dismiss() }
-                    catch { self.error = error.localizedDescription }
-                } label: {
-                    Label("Apple Speech · 系统管理", systemImage: registry.selected(.recordingTranscription) == nil ? "checkmark.circle.fill" : "circle")
-                }
-                ForEach(registry.configurations.filter { $0.enabled && ModelPurpose.recordingTranscription.accepts($0) }) { config in
-                    let unavailable = config.execution == .onDevice
-                        && ModelConfiguration.localSpeechIDs.contains(config.modelID)
-                        && !speechModels.isReady(config.modelID)
-                    Button {
-                        do { try registry.bind(config.id, to: .recordingTranscription); selection = .configuredService; dismiss() }
-                        catch { self.error = error.localizedDescription }
-                    } label: {
-                        Label(config.name + (config.execution == .onDevice ? " · 离线" : " · 在线") + (unavailable ? " · 未下载" : ""), systemImage: registry.selected(.recordingTranscription)?.id == config.id ? "checkmark.circle.fill" : "circle")
-                    }
-                    .disabled(unavailable)
-                }
+                appleSpeechRow
+                ForEach(selectableModels) { config in transcriptionModelRow(config) }
             } footer: {
                 Text("灰色模型尚未下载，请点击右上角模型配置图标，进入模型列表下载。")
             }
@@ -384,6 +374,39 @@ private struct RecordingTranscriptionModelPicker: View {
             }
             ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } }
         }
+    }
+
+    private var appleSpeechRow: some View {
+        Button {
+            choose(.appleSpeech, configurationID: nil)
+        } label: {
+            let isSelected = registry.selected(.recordingTranscription) == nil
+            Label("Apple Speech · 系统管理", systemImage: isSelected ? "checkmark.circle.fill" : "circle")
+        }
+    }
+
+    private func transcriptionModelRow(_ config: ModelConfiguration) -> some View {
+        let isUnavailable = config.execution == .onDevice
+            && ModelConfiguration.localSpeechIDs.contains(config.modelID)
+            && !speechModels.isReady(config.modelID)
+        let isSelected = registry.selected(.recordingTranscription)?.id == config.id
+        var title = config.name
+        title += config.execution == .onDevice ? " · 离线" : " · 在线"
+        if isUnavailable { title += " · 未下载" }
+        return Button {
+            choose(.configuredService, configurationID: config.id)
+        } label: {
+            Label(title, systemImage: isSelected ? "checkmark.circle.fill" : "circle")
+        }
+        .disabled(isUnavailable)
+    }
+
+    private func choose(_ model: RecordingTranscriptionModel, configurationID: UUID?) {
+        do {
+            try registry.bind(configurationID, to: .recordingTranscription)
+            selection = model
+            dismiss()
+        } catch { error = error.localizedDescription }
     }
 }
 
