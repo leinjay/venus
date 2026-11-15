@@ -85,6 +85,48 @@ struct RecordingTranscriptLine: Codable, Equatable, Identifiable, Sendable {
     var text: String
 }
 
+enum RecordingSentences {
+    static func split(_ text: String) -> [String] {
+        var sentences: [String] = []
+        var buffer = ""
+        let characters = Array(text)
+        for (index, character) in characters.enumerated() {
+            buffer.append(character)
+            let decimalPoint = character == "." && index > 0 && index + 1 < characters.count
+                && characters[index - 1].isNumber && characters[index + 1].isNumber
+            let ending = "。！？!?；;\n".contains(character) || (character == "." && !decimalPoint)
+            let clause = buffer.count >= 35 && "，,、：:".contains(character)
+            if ending || clause || buffer.count >= 80 {
+                let value = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty { sentences.append(value) }
+                buffer = ""
+            }
+        }
+        let value = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !value.isEmpty { sentences.append(value) }
+        return sentences
+    }
+
+    // Models without word timestamps use estimates within each recognized audio window.
+    static func lines(_ line: RecordingTranscriptLine) -> [RecordingTranscriptLine] {
+        let sentences = split(line.text)
+        guard sentences.count > 1 else { return [line] }
+        let total = Double(max(1, sentences.reduce(0) { $0 + $1.count }))
+        var consumed = 0.0
+        return sentences.enumerated().map { index, text in
+            let start = line.start + (line.end - line.start) * consumed / total
+            consumed += Double(text.count)
+            let end = line.start + (line.end - line.start) * consumed / total
+            var bytes = line.id.uuid
+            withUnsafeMutableBytes(of: &bytes) { (data: UnsafeMutableRawBufferPointer) in
+                data[14] ^= UInt8((index >> 8) & 255)
+                data[15] ^= UInt8(index & 255)
+            }
+            return RecordingTranscriptLine(id: UUID(uuid: bytes), start: start, end: end, speakerID: line.speakerID, text: text)
+        }
+    }
+}
+
 enum RecordingVoiceEstimate: String, Codable, Sendable {
     case masculine
     case feminine

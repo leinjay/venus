@@ -230,10 +230,12 @@ struct RecordingView: View {
                 Text(item.title).font(.system(size: 14, weight: .semibold)).foregroundStyle(AppTheme.ink).lineLimit(1)
                 Text("\(item.origin == .appleWatch ? "Apple Watch · " : "")\(item.createdAt.formatted(date: .abbreviated, time: .shortened)) · \(Self.timeText(Int(item.duration)))\(item.supplementalSegments.isEmpty ? "" : " · 补录 \(item.supplementalSegments.count) 段")")
                     .font(.caption).foregroundStyle(AppTheme.secondary).lineLimit(1)
-                Text(item.summary.isEmpty
-                     ? (!item.note.isEmpty ? "备注：\(item.note)" : (item.transcript.isEmpty ? "等待转写" : String(item.transcript.prefix(55))))
-                     : String(item.summary.prefix(55)))
+                Text(item.summary.isEmpty ? (item.transcript.isEmpty ? "等待转写" : String(item.transcript.prefix(80))) : String(item.summary.prefix(100)))
                     .font(.caption).foregroundStyle(AppTheme.secondary).lineLimit(2)
+                if !item.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Label(item.note, systemImage: "note.text")
+                        .font(.caption).foregroundStyle(AppTheme.pine).lineLimit(2)
+                }
             }
             Spacer(minLength: 0)
             Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(AppTheme.secondary.opacity(0.7))
@@ -420,9 +422,10 @@ private struct RecordingDetailView: View {
     @AppStorage("recording.transcription.fullAudioModel") private var selectedModelRawValue = RecordingTranscriptionModel.appleSpeech.rawValue
     @State private var confirmDelete = false
     @State private var showingTranscript = true
-    @State private var showingTranscriptTimeline = false
+    @State private var showingTranscriptTimeline = true
     @State private var showingModelPicker = false
     @State private var noteDraft = ""
+    @State private var lastTranscriptionChoice: String?
     @State private var analysisMessages: [RecordingAnalysisMessage] = []
     @State private var analysisDraft = ""
     @State private var isAnalyzing = false
@@ -513,6 +516,19 @@ private struct RecordingDetailView: View {
                 store.preparePlayback(item)
             }
         }
+        .task(id: modelRegistry.selected(.recordingTranscription)?.fingerprint ?? "appleSpeech") {
+            // Initial presentation reuses the saved transcript; subsequent choices transcribe.
+            let choice = modelRegistry.selected(.recordingTranscription)?.fingerprint ?? "appleSpeech"
+            if lastTranscriptionChoice == nil { lastTranscriptionChoice = choice; return }
+            guard lastTranscriptionChoice != choice else { return }
+            lastTranscriptionChoice = choice
+            while store.workingID != nil && !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+            guard !Task.isCancelled, let latest = item else { return }
+            await store.transcribe(latest, model: selectedModel)
+            showingTranscriptTimeline = true
+        }
         .onChange(of: item?.audioFileNames) { _, _ in if let item { store.preparePlayback(item) } }
         .onChange(of: item?.note) { previous, current in
             guard let current, noteDraft == (previous ?? "") else { return }
@@ -590,11 +606,14 @@ private struct RecordingDetailView: View {
 
             HStack(spacing: 10) {
                 Button {
-                    Task { await store.transcribe(item, model: selectedModel) }
+                    Task { await store.distinguishSpeakers(item) }
                 } label: {
-                    Label(isWorking ? "处理中…" : "转成文字", systemImage: "doc.text")
-                        .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity).padding(.vertical, 11)
-                        .foregroundStyle(.white).background(AppTheme.pine, in: Capsule())
+                    HStack(spacing: 7) {
+                        if isWorking { ProgressView().tint(.white) }
+                        Label(isWorking ? "处理中…" : "区分人说话", systemImage: "person.2.wave.2")
+                    }
+                    .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity).padding(.vertical, 11)
+                    .foregroundStyle(.white).background(AppTheme.pine, in: Capsule())
                 }
                 .disabled(isWorking)
                 Button { showingModelPicker = true } label: {
@@ -708,6 +727,8 @@ private struct RecordingDetailView: View {
                     }
                     .disabled(item.transcriptForAnalysis.isEmpty || item.hasUntranscribedSupplement || isWorking)
                 }.buttonStyle(.plain)
+                Text("按自然句显示；无逐字时间戳的模型使用片段内估算时间定位。")
+                    .font(.caption2).foregroundStyle(AppTheme.secondary)
                 Text("转写全文").font(.system(size: 18, weight: .semibold, design: .serif)).foregroundStyle(AppTheme.ink)
                 if item.transcriptLines.isEmpty, item.speakerTranscript == nil, !item.transcript.isEmpty,
                    selectedModel == .configuredService {
@@ -789,8 +810,11 @@ private struct RecordingDetailView: View {
     }
 
     private func timelineLines(for item: VoiceRecording) -> [RecordingTranscriptLine] {
-        if !item.transcriptLines.isEmpty { return item.transcriptLines }
-        guard let speakerTranscript = item.speakerTranscript else { return [] }
+        if !item.transcriptLines.isEmpty { return item.transcriptLines.flatMap { RecordingSentences.lines($0) } }
+        guard let speakerTranscript = item.speakerTranscript else {
+            guard !item.transcript.isEmpty else { return [] }
+            return RecordingSentences.lines(RecordingTranscriptLine(id: item.id, start: 0, end: item.duration, speakerID: nil, text: item.transcript))
+        }
         var result: [RecordingTranscriptLine] = []
         for rawLine in speakerTranscript.components(separatedBy: .newlines) {
             guard let close = rawLine.firstIndex(of: "]"), rawLine.first == "[" else { continue }

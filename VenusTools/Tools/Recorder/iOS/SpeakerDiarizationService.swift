@@ -144,7 +144,9 @@ enum SpeakerDiarizationService {
         for word in recognized {
             if let last = turns.indices.last,
                turns[last].speaker == word.speaker,
-               word.start - turns[last].end <= 1.2 {
+               word.start - turns[last].end <= 0.65,
+               turns[last].text.count + word.text.count <= 80,
+               !"。！？.!?；;".contains(turns[last].text.last ?? " ") {
                 turns[last].text += word.text
                 turns[last].end = max(turns[last].end, word.end)
             } else {
@@ -160,8 +162,8 @@ enum SpeakerDiarizationService {
             )
         }
         let profileByID = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0) })
-        let lines = turns.map { turn in
-            RecordingTranscriptLine(start: turn.start, end: turn.end, speakerID: turn.speaker >= 0 ? turn.speaker : nil, text: turn.text)
+        let lines = turns.flatMap { turn in
+            RecordingSentences.lines(RecordingTranscriptLine(start: turn.start, end: turn.end, speakerID: turn.speaker >= 0 ? turn.speaker : nil, text: turn.text))
         }
         let formatted = turns.map { turn in
             let speakerLabel = turn.speaker < 0 ? "未区分" : (profileByID[turn.speaker]?.label ?? "说话人 \(turn.speaker + 1)")

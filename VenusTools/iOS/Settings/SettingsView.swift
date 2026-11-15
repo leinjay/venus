@@ -192,7 +192,7 @@ struct OfflineSpeechModelRow: View {
                 }
             }
             if let progress = models.progress[config.modelID] {
-                ProgressView(value: progress).tint(.blue)
+                ProgressView(value: progress).progressViewStyle(.linear).tint(.blue)
                 HStack {
                     Text("下载中 \(Int(progress * 100))%")
                     Spacer()

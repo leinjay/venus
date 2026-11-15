@@ -20,6 +20,7 @@ final class OfflineSpeechModels: ObservableObject {
     static let shared = OfflineSpeechModels()
     @Published private(set) var progress: [String: Double] = [:]
     @Published private(set) var speed: [String: Double] = [:]
+    @Published private(set) var downloadStatus: [String: String] = [:]
     @Published private(set) var errors: [String: String] = [:]
     @Published private(set) var revision = 0
     private var active: Set<String> = []
@@ -79,6 +80,7 @@ final class OfflineSpeechModels: ObservableObject {
         progress[id] = 0
         speed[id] = 0
         errors[id] = nil
+        downloadStatus[id] = "正在连接…"
         let dir = directory(id)
         do {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -108,6 +110,7 @@ final class OfflineSpeechModels: ObservableObject {
                         guard self.progress[id] != nil else { return }
                         self.progress[id] = min(0.99, Double(start + written) / total)
                         self.speed[id] = rate
+                        self.downloadStatus[id] = rate > 0 ? "正在下载 \(file.path)" : "等待网络数据…"
                     }
                 }
                 var request = URLRequest(url: url)
@@ -116,7 +119,7 @@ final class OfflineSpeechModels: ObservableObject {
                 var lastError: Error?
                 for attempt in 0..<3 {
                     do {
-                        downloaded = try await session.download(for: request, delegate: delegate)
+                        downloaded = try await delegate.download(request, configuration: configuration)
                         break
                     } catch is CancellationError {
                         throw CancellationError()
@@ -135,6 +138,8 @@ final class OfflineSpeechModels: ObservableObject {
                 let actual = (try temporary.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
                 guard actual > 0 else { throw ModelFailure("下载文件为空：\(file.path)") }
                 if let expected = file.sha256 {
+                    speed[id] = 0
+                    downloadStatus[id] = "正在校验 \(file.path)…"
                     let hash = try await Self.sha256(temporary)
                     guard hash == expected else { throw ModelFailure("文件校验失败：\(file.path)，请重试。") }
                 }
@@ -150,6 +155,7 @@ final class OfflineSpeechModels: ObservableObject {
         }
         progress[id] = nil
         speed[id] = nil
+        downloadStatus[id] = nil
     }
 
     nonisolated private static func sha256(_ url: URL) async throws -> String {
@@ -183,24 +189,63 @@ final class OfflineSpeechModels: ObservableObject {
     func endUse(_ id: String) { active.remove(id) }
 }
 
-private final class SpeechDownloadProgress: NSObject, URLSessionTaskDelegate, URLSessionDownloadDelegate, @unchecked Sendable {
+final class SpeechDownloadProgress: NSObject, URLSessionTaskDelegate, URLSessionDownloadDelegate, @unchecked Sendable {
     private let callback: @Sendable (Int64, Double) -> Void
     private var lastTime = Date()
     private var lastBytes: Int64 = 0
+    private var continuation: CheckedContinuation<(URL, URLResponse), Error>?
+    private var savedURL: URL?
+    private var timer: DispatchSourceTimer?
+    private var session: URLSession?
     init(_ callback: @escaping @Sendable (Int64, Double) -> Void) { self.callback = callback }
+    func download(_ request: URLRequest, configuration: URLSessionConfiguration) async throws -> (URL, URLResponse) {
+        try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+            let queue = OperationQueue()
+            queue.maxConcurrentOperationCount = 1
+            let session = URLSession(configuration: configuration, delegate: self, delegateQueue: queue)
+            self.session = session
+            let task = session.downloadTask(with: request)
+            let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+            timer.schedule(deadline: .now(), repeating: 1)
+            timer.setEventHandler { [weak self, weak task] in
+                guard let self, let task else { return }
+                queue.addOperation { self.report(task.countOfBytesReceived) }
+            }
+            self.timer = timer
+            timer.resume()
+            task.resume()
+        }
+    }
+    private func report(_ bytes: Int64) {
+        let now = Date()
+        let elapsed = now.timeIntervalSince(lastTime)
+        guard elapsed >= 0.5 else { return }
+        callback(bytes, Double(max(0, bytes - lastBytes)) / elapsed)
+        lastTime = now
+        lastBytes = bytes
+    }
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
                     didWriteData bytesWritten: Int64, totalBytesWritten: Int64,
                     totalBytesExpectedToWrite: Int64) {
-        let now = Date()
-        if totalBytesWritten < lastBytes { lastBytes = 0; lastTime = now }
-        let elapsed = now.timeIntervalSince(lastTime)
-        if elapsed >= 0.5 {
-            callback(totalBytesWritten, Double(totalBytesWritten - lastBytes) / elapsed)
-            lastTime = now
-            lastBytes = totalBytesWritten
-        }
+        report(totalBytesWritten)
     }
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {}
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        let destination = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        do { try FileManager.default.moveItem(at: location, to: destination); savedURL = destination }
+        catch { finish(.failure(error)) }
+    }
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error { finish(.failure(error)) }
+        else if let savedURL, let response = task.response { finish(.success((savedURL, response))) }
+        else { finish(.failure(ModelFailure("下载没有返回文件。"))) }
+    }
+    private func finish(_ result: Result<(URL, URLResponse), Error>) {
+        timer?.cancel(); timer = nil
+        let pending = continuation; continuation = nil
+        session?.finishTasksAndInvalidate(); session = nil
+        pending?.resume(with: result)
+    }
 }
 
 enum OfflineSpeechTranscription {

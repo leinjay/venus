@@ -7,6 +7,8 @@ let package = Package(
     platforms: [.macOS(.v13)],
     products: [.library(name: "VenusTaskCore", targets: ["VenusTaskCore"])],
     targets: [
+        .target(name: "VenusRecordingCore", path: "VenusTools/Tools/Recorder/Shared"),
+        .testTarget(name: "VenusRecordingCoreTests", dependencies: ["VenusRecordingCore"], path: "Tests/Recorder"),
         .target(name: "VenusTaskCore", path: "VenusTools/Tools/Reminders/Shared"),
         .target(name: "VenusModelCore", path: "VenusTools/iOS/AI", exclude: ["LocalQwenService.swift", "ModelRegistry.swift", "ConfiguredModelService.swift"], sources: ["ModelConfiguration.swift", "ModelWire.swift"]),
         .testTarget(name: "VenusModelCoreTests", dependencies: ["VenusModelCore"], path: "Tests/Models"),

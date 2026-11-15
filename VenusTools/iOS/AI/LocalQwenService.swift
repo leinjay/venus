@@ -78,6 +78,7 @@ final class LocalQwenService: ObservableObject {
     @Published private(set) var preparing = false
     @Published private(set) var generating = false
     @Published private(set) var progress = 0.0
+    @Published private(set) var downloadSpeed = 0.0
     @Published private(set) var status = "Qwen3 尚未准备"
     private let engine = LocalQwenEngine()
     private var downloadTask: Task<Void, Never>?
@@ -94,7 +95,7 @@ final class LocalQwenService: ObservableObject {
         guard !preparing, !generating else { return }
         preparing = true
         downloadTask = Task {
-            defer { preparing = false }
+            defer { preparing = false; downloadSpeed = 0 }
             do {
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
                 var resources = URLResourceValues(); resources.isExcludedFromBackup = true
@@ -115,11 +116,17 @@ final class LocalQwenService: ObservableObject {
                     if await Self.verified(target, file: file) { completed += file.size; continue }
                     status = "正在下载 \(file.name)"
                     let offset = completed
-                    let delegate = ModelDownloadProgress { count in Task { @MainActor in self.progress = Double(offset + count) / Double(total) } }
+                    let delegate = SpeechDownloadProgress { count, rate in
+                        Task { @MainActor in
+                            self.progress = Double(offset + count) / Double(total)
+                            self.downloadSpeed = rate
+                        }
+                    }
                     let url = URL(string: "https://huggingface.co/\(Self.modelID)/resolve/\(Self.revision)/\(file.name)")!
-                    let (temporary, response) = try await session.download(for: URLRequest(url: url), delegate: delegate)
+                    let (temporary, response) = try await delegate.download(URLRequest(url: url), configuration: configuration)
                     guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw TaskFailure("下载失败，请稍后重试") }
                     status = "正在校验 \(file.name)"
+                    downloadSpeed = 0
                     guard await Self.verified(temporary, file: file) else { throw TaskFailure("模型校验失败，请重新下载 \(file.name)") }
                     try Task.checkCancellation()
                     if FileManager.default.fileExists(atPath: target.path) { try FileManager.default.removeItem(at: target) }
