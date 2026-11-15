@@ -86,9 +86,22 @@ final class OfflineSpeechModels: ObservableObject {
             try? FileManager.default.removeItem(at: marker)
             let total = Double(spec.files.reduce(Int64(0)) { $0 + $1.estimatedSize })
             var completed: Int64 = 0
+            let configuration = URLSessionConfiguration.default
+            configuration.waitsForConnectivity = true
+            configuration.timeoutIntervalForRequest = 120
+            configuration.timeoutIntervalForResource = 3600
+            let session = URLSession(configuration: configuration)
+            defer { session.invalidateAndCancel() }
             for file in spec.files {
                 try Task.checkCancellation()
                 let url = URL(string: "https://huggingface.co/\(spec.repository)/resolve/\(spec.revision)/\(file.path)")!
+                let dest = dir.appendingPathComponent(file.path)
+                if let expected = file.sha256, FileManager.default.fileExists(atPath: dest.path),
+                   try await Self.sha256(dest) == expected {
+                    completed += Int64((try dest.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+                    progress[id] = min(0.99, Double(completed) / total)
+                    continue
+                }
                 let start = completed
                 let delegate = SpeechDownloadProgress { written, rate in
                     Task { @MainActor in
@@ -99,23 +112,32 @@ final class OfflineSpeechModels: ObservableObject {
                 }
                 var request = URLRequest(url: url)
                 request.timeoutInterval = 300
-                let (temporary, response) = try await URLSession.shared.download(for: request, delegate: delegate)
+                var downloaded: (URL, URLResponse)?
+                var lastError: Error?
+                for attempt in 0..<3 {
+                    do {
+                        downloaded = try await session.download(for: request, delegate: delegate)
+                        break
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        lastError = error
+                        speed[id] = 0
+                        if attempt < 2 { try await Task.sleep(for: .seconds(2 * (attempt + 1))) }
+                    }
+                }
+                guard let (temporary, response) = downloaded else {
+                    throw ModelFailure("下载 \(file.path) 时连接中断，已自动重试 3 次：\(lastError?.localizedDescription ?? "未知网络错误")。已校验的文件会保留，点击下载可继续。")
+                }
                 guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                     throw ModelFailure("下载 \(file.path) 失败，HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)。")
                 }
                 let actual = (try temporary.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
                 guard actual > 0 else { throw ModelFailure("下载文件为空：\(file.path)") }
                 if let expected = file.sha256 {
-                    let hash = try await Task.detached(priority: .utility) {
-                        let handle = try FileHandle(forReadingFrom: temporary)
-                        defer { try? handle.close() }
-                        var digest = SHA256()
-                        while let block = try handle.read(upToCount: 1_048_576), !block.isEmpty { digest.update(data: block) }
-                        return digest.finalize().map { String(format: "%02x", $0) }.joined()
-                    }.value
+                    let hash = try await Self.sha256(temporary)
                     guard hash == expected else { throw ModelFailure("文件校验失败：\(file.path)，请重试。") }
                 }
-                let dest = dir.appendingPathComponent(file.path)
                 try FileManager.default.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
                 if FileManager.default.fileExists(atPath: dest.path) { try FileManager.default.removeItem(at: dest) }
                 try FileManager.default.moveItem(at: temporary, to: dest)
@@ -128,6 +150,16 @@ final class OfflineSpeechModels: ObservableObject {
         }
         progress[id] = nil
         speed[id] = nil
+    }
+
+    nonisolated private static func sha256(_ url: URL) async throws -> String {
+        try await Task.detached(priority: .utility) {
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+            var digest = SHA256()
+            while let block = try handle.read(upToCount: 1_048_576), !block.isEmpty { digest.update(data: block) }
+            return digest.finalize().map { String(format: "%02x", $0) }.joined()
+        }.value
     }
 
     func remove(_ id: String) {
@@ -160,6 +192,7 @@ private final class SpeechDownloadProgress: NSObject, URLSessionTaskDelegate, UR
                     didWriteData bytesWritten: Int64, totalBytesWritten: Int64,
                     totalBytesExpectedToWrite: Int64) {
         let now = Date()
+        if totalBytesWritten < lastBytes { lastBytes = 0; lastTime = now }
         let elapsed = now.timeIntervalSince(lastTime)
         if elapsed >= 0.5 {
             callback(totalBytesWritten, Double(totalBytesWritten - lastBytes) / elapsed)

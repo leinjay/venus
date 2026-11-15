@@ -122,14 +122,12 @@ struct RemindersView: View {
             .background(AppTheme.canvas.ignoresSafeArea())
             .navigationTitle("任务提醒").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { navigation.selectedTab = 1 } label: { Label("录音", systemImage: "waveform") }
-                }
                 ToolbarItem(placement: .topBarTrailing) { Button { path.append(.new) } label: { Image(systemName: "plus") }.accessibilityLabel("新建任务") }
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink(value: TaskRoute.models) { Image(systemName: "cpu") }
+                        .accessibilityLabel("任务使用的模型")
+                }
                 ToolbarItem(placement: .topBarTrailing) { Menu {
-                    NavigationLink(value: TaskRoute.models) {
-                        Label("任务使用的模型", systemImage: "cpu")
-                    }
                     Button("回收站（\(store.deleted.count)）") { recycle = true }
                     Button("重试通知与同步") { store.retryDelivery() }
                     Toggle("通知隐藏标题与内容", isOn: $hideTitle)

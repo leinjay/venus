@@ -46,7 +46,7 @@ struct RecordingView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink { RecordingModelsView() } label: { Image(systemName: "slider.horizontal.3") }
+                    NavigationLink { RecordingModelsView() } label: { Image(systemName: "cpu") }
                         .accessibilityLabel("录音模型")
                 }
             }
@@ -215,7 +215,7 @@ private struct RecordingModelsView: View {
     var body: some View {
         List {
             Section {
-                Text("实时字幕和本机转写使用 Apple Speech，也可配置并授权外部转写服务。分析服务只接收转写文字。")
+                Text("实时字幕使用 Apple Speech；录音转写可选择已下载的离线模型或外部转写服务。分析服务只接收转写文字。")
                     .font(.caption).foregroundStyle(AppTheme.secondary)
                 NavigationLink { ModelConfigurationEditor() } label: {
                     Label("添加在线模型配置", systemImage: "plus.circle")
@@ -233,12 +233,14 @@ private struct RecordingModelsView: View {
         .background(AppTheme.canvas)
         .navigationTitle("录音模型")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { NavigationLink { ModelListView() } label: { Image(systemName: "cpu") }.accessibilityLabel("模型配置") } }
     }
 }
 
 private struct RecordingTranscriptionModelPicker: View {
     @Binding var selection: RecordingTranscriptionModel
     @ObservedObject private var registry = ModelRegistry.shared
+    @ObservedObject private var speechModels = OfflineSpeechModels.shared
     @Environment(\.dismiss) private var dismiss
     @State private var error: String?
 
@@ -252,23 +254,36 @@ private struct RecordingTranscriptionModelPicker: View {
                     Label("Apple Speech · 系统管理", systemImage: registry.selected(.recordingTranscription) == nil ? "checkmark.circle.fill" : "circle")
                 }
                 ForEach(registry.configurations.filter { $0.enabled && ModelPurpose.recordingTranscription.accepts($0) }) { config in
+                    let unavailable = config.execution == .onDevice
+                        && ModelConfiguration.localSpeechIDs.contains(config.modelID)
+                        && !speechModels.isReady(config.modelID)
                     Button {
                         do { try registry.bind(config.id, to: .recordingTranscription); selection = .configuredService; dismiss() }
                         catch { self.error = error.localizedDescription }
                     } label: {
-                        Label(config.name + (config.execution == .onDevice ? " · 离线" : " · 在线"), systemImage: registry.selected(.recordingTranscription)?.id == config.id ? "checkmark.circle.fill" : "circle")
+                        Label(config.name + (config.execution == .onDevice ? " · 离线" : " · 在线") + (unavailable ? " · 未下载" : ""), systemImage: registry.selected(.recordingTranscription)?.id == config.id ? "checkmark.circle.fill" : "circle")
                     }
+                    .disabled(unavailable)
                 }
+            } footer: {
+                Text("灰色模型尚未下载，请点击右上角模型配置图标，进入模型列表下载。")
             }
-            Section {
-                NavigationLink { RecordingModelsView() } label: { Label("模型列表与授权", systemImage: "slider.horizontal.3") }
-                if let error { Text(error).font(.caption).foregroundStyle(.red) }
+            if let error {
+                Section {
+                    Text(error).font(.caption).foregroundStyle(.red)
+                }
             }
         }
         .scrollContentBackground(.hidden)
         .background(AppTheme.canvas)
         .navigationTitle("选择转写模型")
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成") { dismiss() } } }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink { RecordingModelsView() } label: { Image(systemName: "cpu") }
+                    .accessibilityLabel("模型配置")
+            }
+            ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } }
+        }
     }
 }
 
@@ -376,6 +391,10 @@ private struct RecordingDetailView: View {
         .navigationTitle("录音详情")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink { RecordingModelsView() } label: { Image(systemName: "cpu") }
+                    .accessibilityLabel("模型配置")
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button { store.prepareSupplement(for: recordingID); dismiss() } label: {
@@ -649,7 +668,7 @@ private struct RecordingDetailView: View {
                 }
                 Spacer()
                 NavigationLink { RecordingModelsView() } label: {
-                    Image(systemName: "slider.horizontal.3")
+                    Image(systemName: "cpu")
                         .font(.system(size: 14, weight: .semibold)).foregroundStyle(AppTheme.pine)
                         .frame(width: 34, height: 34).background(AppTheme.sage, in: Circle())
                 }

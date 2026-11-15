@@ -61,13 +61,13 @@ struct ModelListView: View {
                 NavigationLink("使用列表") { ModelBindingsView() }
                 Button("导入加密初始化文件") { importer = true }
             }
-            Section("已保存模型 · \(registry.configurations.count)") {
+            Section("模型列表") {
                 VStack(alignment: .leading, spacing: 5) {
                     Text("Apple Speech").font(.headline)
                     Text("离线 · 语音 · 大小由系统管理").font(.caption).foregroundStyle(AppTheme.pine)
                 }
                 if registry.configurations.isEmpty { Text("添加第一个具名配置，工具即可按名称选择。") }
-                ForEach(registry.configurations) { config in
+                ForEach(registry.configurations.filter { !($0.execution == .onDevice && $0.modelID == "mlx-community/Qwen2-VL-2B-Instruct-4bit") }) { config in
                     if ModelConfiguration.localSpeechIDs.contains(config.modelID) {
                         OfflineSpeechModelRow(config: config)
                     } else {
@@ -82,6 +82,9 @@ struct ModelListView: View {
                             Text("\(config.execution.title) · \(config.provider)").font(.caption)
                             Text(config.modelID).font(.caption2).foregroundStyle(.secondary)
                             Text("\(registry.status(config)) · \(config.capabilityTitle) · \(registry.references(config.id).count) 个功能引用").font(.caption2).foregroundStyle(.secondary)
+                            if config.execution == .onDevice && config.modelID == LocalQwenService.modelID && !local.ready {
+                                Text("点击进入下载或导入模型").font(.caption).foregroundStyle(AppTheme.pine)
+                            }
                             if config.execution == .onDevice && !config.textCapable {
                                 Text(config.modelID == "whisper-small" ? "尚未集成 WhisperKit；可另配音频转写模型，或选择系统离线识别。" : "尚未集成视觉运行库；当前图片使用本机文字提取。")
                                     .font(.caption).foregroundStyle(AppTheme.terracotta)
@@ -91,11 +94,6 @@ struct ModelListView: View {
                     }.swipeActions { Button("删除", role: .destructive) { deleting = config } }
                     }
                 }
-            }
-            Section("本机模型资源") {
-                QwenModelPanel()
-                Text("语音模型可在模型列表中下载；在使用列表为各场景选择转写模型。").font(.caption).foregroundStyle(.secondary)
-                Text("Qwen3 固定版本：\(LocalQwenService.revision)\n运行库 MLX Swift examples 2.25.9；多个文字配置共享这一份权重，生成参数分别保存。").font(.caption2).textSelection(.enabled)
             }
         }.navigationTitle("模型列表")
             .navigationBarBackButtonHidden(navigation.returnTab != nil && navigation.settingsPath == [.models])
@@ -163,6 +161,7 @@ struct ModelBindingsView: View {
             Section { ModelBindingPanel(purpose: .dialogue); ModelBindingPanel(purpose: .summary); ModelBindingPanel(purpose: .search); ModelBindingPanel(purpose: .transcription); ModelBindingPanel(purpose: .recordingSummary); ModelBindingPanel(purpose: .recordingTranscription) }
             Section { Text("模型改名后引用保持有效；禁用、删除或调用参数变更后，旧请求会停止。配置测试仅使用固定样本，不代表已授权发送任务。").font(.caption).foregroundStyle(.secondary) }
         }.navigationTitle("使用列表")
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { NavigationLink { ModelListView() } label: { Image(systemName: "cpu") }.accessibilityLabel("模型配置") } }
     }
 }
 
@@ -213,6 +212,7 @@ struct ModelBindingPanel: View {
     @EnvironmentObject private var navigation: AppNavigation
     @ObservedObject private var registry = ModelRegistry.shared
     @ObservedObject private var speechModels = OfflineSpeechModels.shared
+    @ObservedObject private var localModel = LocalQwenService.shared
     @State private var consent = false
     @State private var error: String?
     private var selected: ModelConfiguration? { registry.selected(purpose) }
@@ -225,7 +225,15 @@ struct ModelBindingPanel: View {
                     do { try registry.bind(id, to: purpose) } catch { self.error = error.localizedDescription }
                 })) {
                     Text(purpose == .transcription || purpose == .recordingTranscription ? "系统离线识别" : "未配置").tag(UUID?.none)
-                    ForEach(registry.configurations.filter { $0.enabled && purpose.accepts($0) || $0.id == selected?.id }) { config in Text(config.name + " · " + config.execution.title + (config.enabled ? "" : "（已禁用）")).tag(Optional(config.id)) }
+                    ForEach(registry.configurations.filter { $0.enabled && purpose.accepts($0) || $0.id == selected?.id }) { config in
+                        let missingSpeech = ModelConfiguration.localSpeechIDs.contains(config.modelID) && !speechModels.isReady(config.modelID)
+                        let missingText = config.execution == .onDevice && config.modelID == LocalQwenService.modelID && !localModel.ready
+                        Text(config.name + " · " + config.execution.title + (missingSpeech || missingText ? "（未下载）" : (config.enabled ? "" : "（已禁用）")))
+                            .tag(Optional(config.id)).disabled(missingSpeech || missingText)
+                    }
+                }
+                if purpose == .transcription || purpose == .recordingTranscription {
+                    Text("灰色模型尚未下载，请在模型列表中下载。").font(.caption).foregroundStyle(.secondary)
                 }
             }
             if let config = selected {
