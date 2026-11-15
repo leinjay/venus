@@ -197,9 +197,25 @@ final class SpeechDownloadProgress: NSObject, URLSessionTaskDelegate, URLSession
     private var savedURL: URL?
     private var timer: DispatchSourceTimer?
     private var session: URLSession?
+    private let cancellationLock = NSLock()
+    private var cancelled = false
+    private var downloadTask: URLSessionDownloadTask?
     init(_ callback: @escaping @Sendable (Int64, Double) -> Void) { self.callback = callback }
     func download(_ request: URLRequest, configuration: URLSessionConfiguration) async throws -> (URL, URLResponse) {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withTaskCancellationHandler {
+            try await performDownload(request, configuration: configuration)
+        } onCancel: { self.cancel() }
+    }
+    private func cancel() {
+        cancellationLock.lock()
+        cancelled = true
+        let task = downloadTask
+        cancellationLock.unlock()
+        task?.cancel()
+    }
+    private func performDownload(_ request: URLRequest, configuration: URLSessionConfiguration) async throws -> (URL, URLResponse) {
+        try Task.checkCancellation()
+        return try await withCheckedThrowingContinuation { continuation in
             self.continuation = continuation
             let queue = OperationQueue()
             queue.maxConcurrentOperationCount = 1
@@ -214,7 +230,12 @@ final class SpeechDownloadProgress: NSObject, URLSessionTaskDelegate, URLSession
             }
             self.timer = timer
             timer.resume()
+            cancellationLock.lock()
+            downloadTask = task
+            let shouldCancel = cancelled
+            cancellationLock.unlock()
             task.resume()
+            if shouldCancel { task.cancel() }
         }
     }
     private func report(_ bytes: Int64) {
