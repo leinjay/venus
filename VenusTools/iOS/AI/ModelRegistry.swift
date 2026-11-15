@@ -72,7 +72,9 @@ final class ModelRegistry: ObservableObject {
         if !config.enabled { return config.execution == .onDevice && !config.textCapable ? "尚未接入运行能力" : "已禁用" }
         if config.execution == .onDevice {
             if ModelConfiguration.localSpeechIDs.contains(config.modelID) {
-                return OfflineSpeechModels.shared.isReady(config.modelID) ? "已下载" : "未下载"
+                let models = OfflineSpeechModels.shared
+                if models.isBundled(config.modelID) { return "已内置" }
+                return models.isReady(config.modelID) ? "已下载" : "未下载"
             }
             if config.modelID != LocalQwenService.modelID { return "此本机运行库尚未接入" }
             if !LocalQwenService.shared.ready { return "模型未下载或未验证" }

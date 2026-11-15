@@ -175,15 +175,20 @@ struct OfflineSpeechModelRow: View {
                     Text(config.name).font(.headline)
                     Text("离线 · 语音 · \(ByteCountFormatter.string(fromByteCount: models.size(config.modelID), countStyle: .file))")
                         .font(.caption).foregroundStyle(AppTheme.pine)
-                    Text("来源：Hugging Face（中国境外）").font(.caption2).foregroundStyle(.secondary)
+                    Text(models.isBundled(config.modelID) ? "随应用内置 · 无需下载" : "来源：Hugging Face（中国境外）")
+                        .font(.caption2).foregroundStyle(.secondary)
                 }
                 Spacer()
                 if models.isReady(config.modelID) {
-                    VStack(alignment: .trailing) {
-                        Text("已下载").font(.caption).foregroundStyle(AppTheme.pine)
-                        Button(role: .destructive) { models.remove(config.modelID) } label: {
-                            Image(systemName: "trash")
-                        }.buttonStyle(.borderless).accessibilityLabel("删除 \(config.name)")
+                    if models.isBundled(config.modelID) {
+                        Text("已内置").font(.caption).foregroundStyle(AppTheme.pine)
+                    } else {
+                        VStack(alignment: .trailing) {
+                            Text("已下载").font(.caption).foregroundStyle(AppTheme.pine)
+                            Button(role: .destructive) { models.remove(config.modelID) } label: {
+                                Image(systemName: "trash")
+                            }.buttonStyle(.borderless).accessibilityLabel("删除 \(config.name)")
+                        }
                     }
                 } else if models.progress[config.modelID] == nil {
                     Button { Task { await models.download(config.modelID) } } label: {

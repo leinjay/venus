@@ -58,30 +58,48 @@ final class OfflineSpeechModels: ObservableObject {
             .appendingPathComponent(name, isDirectory: true)
     }
 
+    private func bundledDirectory(_ id: String) -> URL? {
+        guard id == ModelConfiguration.qwenASRID,
+              let resources = Bundle.main.resourceURL else { return nil }
+        return resources.appendingPathComponent("RecorderModels/Qwen3ASR06B", isDirectory: true)
+    }
+
+    private func hasVerifiedFiles(_ directory: URL, spec: SpeechModelSpec) -> Bool {
+        guard (try? String(contentsOf: directory.appendingPathComponent("verified"), encoding: .utf8)) == spec.revision else {
+            return false
+        }
+        return spec.files.allSatisfy {
+            ((try? directory.appendingPathComponent($0.path).resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) > 0
+        }
+    }
+
+    func isBundled(_ id: String) -> Bool {
+        guard let spec = specs[id], let directory = bundledDirectory(id) else { return false }
+        return hasVerifiedFiles(directory, spec: spec)
+    }
+
     func isReady(_ id: String) -> Bool {
         guard let spec = specs[id] else { return false }
-        let dir = directory(id)
-        guard (try? String(contentsOf: dir.appendingPathComponent("verified"), encoding: .utf8)) == spec.revision else { return false }
-        return spec.files.allSatisfy {
-            ((try? dir.appendingPathComponent($0.path).resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) > 0
-        }
+        return isBundled(id) || hasVerifiedFiles(directory(id), spec: spec)
     }
 
     func modelDirectory(_ id: String) throws -> URL {
         guard isReady(id) else { throw ModelFailure("请先在模型列表下载并校验模型。") }
+        if isBundled(id), let directory = bundledDirectory(id) { return directory }
         return directory(id)
     }
 
     func size(_ id: String) -> Int64 {
         guard let spec = specs[id] else { return 0 }
-        if !isReady(id) { return spec.files.reduce(0) { $0 + $1.estimatedSize } }
+        guard isReady(id) else { return spec.files.reduce(0) { $0 + $1.estimatedSize } }
+        let dir = isBundled(id) ? (bundledDirectory(id) ?? directory(id)) : directory(id)
         return spec.files.reduce(0) {
-            $0 + Int64((try? directory(id).appendingPathComponent($1.path).resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+            $0 + Int64((try? dir.appendingPathComponent($1.path).resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
         }
     }
 
     func download(_ id: String) async {
-        guard let spec = specs[id], progress[id] == nil, !active.contains(id) else { return }
+        guard let spec = specs[id], !isReady(id), progress[id] == nil, !active.contains(id) else { return }
         var pending = UserDefaults.standard.stringArray(forKey: "models.speech.pending") ?? []
         if !pending.contains(id) { pending.append(id) }
         UserDefaults.standard.set(pending, forKey: "models.speech.pending")
@@ -186,6 +204,7 @@ final class OfflineSpeechModels: ObservableObject {
     }
 
     func remove(_ id: String) {
+        guard !isBundled(id) else { return }
         guard progress[id] == nil, !active.contains(id), specs[id] != nil else {
             errors[id] = "模型正在使用或下载，请稍后再删除。"
             return
