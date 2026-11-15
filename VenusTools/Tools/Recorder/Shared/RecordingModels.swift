@@ -139,6 +139,7 @@ struct VoiceRecording: Codable, Identifiable, Equatable {
     var title: String
     var createdAt: Date
     var duration: TimeInterval
+    var note: String = ""
     var audioFileName: String
     var transcript: String
     var summary: String
@@ -158,7 +159,7 @@ struct VoiceRecording: Codable, Identifiable, Equatable {
 
 extension VoiceRecording {
     private enum CodingKeys: String, CodingKey {
-        case id, title, createdAt, duration, audioFileName, transcript, summary, origin, supplementalSegments, supplementForID, baseTranscript, speakerTranscript, speakerCount, transcriptLines, speakerProfiles
+        case id, title, createdAt, duration, note, audioFileName, transcript, summary, origin, supplementalSegments, supplementForID, baseTranscript, speakerTranscript, speakerCount, transcriptLines, speakerProfiles
     }
 
     init(from decoder: Decoder) throws {
@@ -167,6 +168,7 @@ extension VoiceRecording {
         title = try values.decode(String.self, forKey: .title)
         createdAt = try values.decode(Date.self, forKey: .createdAt)
         duration = try values.decode(TimeInterval.self, forKey: .duration)
+        note = try values.decodeIfPresent(String.self, forKey: .note) ?? ""
         audioFileName = try values.decode(String.self, forKey: .audioFileName)
         transcript = try values.decode(String.self, forKey: .transcript)
         summary = try values.decode(String.self, forKey: .summary)
@@ -186,6 +188,7 @@ extension VoiceRecording {
         try values.encode(title, forKey: .title)
         try values.encode(createdAt, forKey: .createdAt)
         try values.encode(duration, forKey: .duration)
+        try values.encode(note, forKey: .note)
         try values.encode(audioFileName, forKey: .audioFileName)
         try values.encode(transcript, forKey: .transcript)
         try values.encode(summary, forKey: .summary)

@@ -1,30 +1,128 @@
 import SwiftUI
 
+private enum RecordingOriginFilter: String, CaseIterable, Identifiable, Hashable {
+    case all
+    case iPhone
+    case appleWatch
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .all: return "全部来源"
+        case .iPhone: return "iPhone"
+        case .appleWatch: return "Apple Watch"
+        }
+    }
+}
+
+private enum RecordingProcessingFilter: String, CaseIterable, Identifiable, Hashable {
+    case all
+    case pending
+    case analyzed
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .all: return "全部"
+        case .pending: return "待处理"
+        case .analyzed: return "已分析"
+        }
+    }
+}
+
 struct RecordingView: View {
     @ObservedObject var store: RecordingStore
+    @State private var searchQuery = ""
+    @State private var originFilter: RecordingOriginFilter = .all
+    @State private var processingFilter: RecordingProcessingFilter = .all
+
+    private var filteredRecordings: [VoiceRecording] {
+        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        return store.recordings.filter { item in
+            let matchesOrigin = originFilter == .all
+                || (originFilter == .iPhone && item.origin == .iPhone)
+                || (originFilter == .appleWatch && item.origin == .appleWatch)
+            let hasTranscript = !item.transcriptForAnalysis.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && !item.hasUntranscribedSupplement
+            let hasAnalysis = !item.summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            let matchesProcessing: Bool
+            switch processingFilter {
+            case .all: matchesProcessing = true
+            case .pending: matchesProcessing = !hasTranscript || !hasAnalysis
+            case .analyzed: matchesProcessing = hasTranscript && hasAnalysis
+            }
+            let searchableText = [item.title, item.note, item.transcript, item.speakerTranscript ?? "", item.summary]
+                .joined(separator: " ")
+            let matchesQuery = query.isEmpty || searchableText.localizedCaseInsensitiveContains(query)
+            return matchesOrigin && matchesProcessing && matchesQuery
+        }
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    BrandHeader(eyebrow: "VOICE NOTES", title: "录音", subtitle: "先把对话留下来，再慢慢整理重点。")
-
                     recorderCard
 
                     if !store.recordings.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
-                            HStack {
-                                Text("最近录音").font(.system(size: 19, weight: .semibold, design: .serif)).foregroundStyle(AppTheme.ink)
-                                Spacer()
-                                Text("\(store.recordings.count) 条").font(.caption).foregroundStyle(AppTheme.secondary)
-                            }
-                            ForEach(store.recordings) { item in
-                                NavigationLink {
-                                    RecordingDetailView(store: store, recordingID: item.id)
-                                } label: {
-                                    recordingRow(item)
+                            HStack(spacing: 9) {
+                                Image(systemName: "magnifyingglass").foregroundStyle(AppTheme.secondary)
+                                TextField("搜索标题、转写、备注", text: $searchQuery)
+                                    .submitLabel(.search)
+                                if !searchQuery.isEmpty {
+                                    Button { searchQuery = "" } label: {
+                                        Image(systemName: "xmark.circle.fill").foregroundStyle(AppTheme.secondary)
+                                    }
+                                    .accessibilityLabel("清除搜索")
                                 }
-                                .buttonStyle(.plain)
+                            }
+                            .padding(12)
+                            .background(AppTheme.line.opacity(0.65), in: Capsule())
+
+                            Picker("录音状态", selection: $processingFilter) {
+                                ForEach(RecordingProcessingFilter.allCases) { filter in
+                                    Text(filter.title).tag(filter)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+
+                            HStack {
+                                Menu {
+                                    Picker("录音来源", selection: $originFilter) {
+                                        ForEach(RecordingOriginFilter.allCases) { filter in
+                                            Text(filter.title).tag(filter)
+                                        }
+                                    }
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "line.3.horizontal.decrease.circle")
+                                        Text(originFilter.title)
+                                        Image(systemName: "chevron.down").font(.caption2)
+                                    }
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(AppTheme.ink)
+                                    .padding(.horizontal, 12).padding(.vertical, 9)
+                                    .background(AppTheme.surface, in: Capsule())
+                                    .overlay { Capsule().stroke(AppTheme.line, lineWidth: 1) }
+                                }
+                                Spacer()
+                                Text("\(filteredRecordings.count) 条录音")
+                                    .font(.caption).foregroundStyle(AppTheme.secondary)
+                            }
+
+                            if filteredRecordings.isEmpty {
+                                ContentUnavailableView("没有匹配录音", systemImage: "waveform", description: Text("试试其他关键词或过滤条件。"))
+                                    .padding(.vertical, 18)
+                            } else {
+                                ForEach(filteredRecordings) { item in
+                                    NavigationLink {
+                                        RecordingDetailView(store: store, recordingID: item.id)
+                                    } label: {
+                                        recordingRow(item)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
                             }
                         }
                     }
@@ -132,7 +230,9 @@ struct RecordingView: View {
                 Text(item.title).font(.system(size: 14, weight: .semibold)).foregroundStyle(AppTheme.ink).lineLimit(1)
                 Text("\(item.origin == .appleWatch ? "Apple Watch · " : "")\(item.createdAt.formatted(date: .abbreviated, time: .shortened)) · \(Self.timeText(Int(item.duration)))\(item.supplementalSegments.isEmpty ? "" : " · 补录 \(item.supplementalSegments.count) 段")")
                     .font(.caption).foregroundStyle(AppTheme.secondary).lineLimit(1)
-                Text(item.summary.isEmpty ? (item.transcript.isEmpty ? "等待转写" : String(item.transcript.prefix(55))) : String(item.summary.prefix(55)))
+                Text(item.summary.isEmpty
+                     ? (!item.note.isEmpty ? "备注：\(item.note)" : (item.transcript.isEmpty ? "等待转写" : String(item.transcript.prefix(55))))
+                     : String(item.summary.prefix(55)))
                     .font(.caption).foregroundStyle(AppTheme.secondary).lineLimit(2)
             }
             Spacer(minLength: 0)
@@ -297,6 +397,7 @@ private struct RecordingDetailView: View {
     @State private var showingTranscript = true
     @State private var showingTranscriptTimeline = false
     @State private var showingModelPicker = false
+    @State private var noteDraft = ""
     @State private var analysisMessages: [RecordingAnalysisMessage] = []
     @State private var analysisDraft = ""
     @State private var isAnalyzing = false
@@ -344,6 +445,8 @@ private struct RecordingDetailView: View {
                             }.accessibilityLabel("删除录音")
                         }
 
+                        recordingNotes(item)
+
                         if showingTranscript {
                             transcriptPanel(item)
                         } else {
@@ -379,14 +482,20 @@ private struct RecordingDetailView: View {
                 }
             }
         }
-        .onAppear { if let item { store.preparePlayback(item) } }
-        .onChange(of: item?.audioFileNames) { _, _ in if let item { store.preparePlayback(item) } }
-        .task(id: recordingID) {
-            while store.workingID == recordingID && !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(250))
+        .onAppear {
+            if let item {
+                noteDraft = item.note
+                store.preparePlayback(item)
             }
-            guard !Task.isCancelled, let item = store.recording(recordingID), shouldAutoTranscribe(item) else { return }
-            await store.transcribe(item, model: selectedModel)
+        }
+        .onChange(of: item?.audioFileNames) { _, _ in if let item { store.preparePlayback(item) } }
+        .onChange(of: item?.note) { previous, current in
+            guard let current, noteDraft == (previous ?? "") else { return }
+            noteDraft = current
+        }
+        .onChange(of: item?.transcriptForAnalysis) { _, _ in
+            analysisMessages = []
+            analysisSaved = false
         }
         .navigationTitle("录音详情")
         .navigationBarTitleDisplayMode(.inline)
@@ -422,6 +531,31 @@ private struct RecordingDetailView: View {
                 RecordingTranscriptionModelPicker(selection: selectedModelBinding)
             }
         }
+    }
+
+    private func recordingNotes(_ item: VoiceRecording) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("备注").font(.system(size: 18, weight: .semibold, design: .serif)).foregroundStyle(AppTheme.ink)
+                Spacer()
+                Button {
+                    do { try store.updateNote(noteDraft, for: item.id) }
+                    catch { store.errorMessage = "备注保存失败：\(error.localizedDescription)" }
+                } label: {
+                    Label("保存备注", systemImage: "checkmark")
+                        .font(.caption.weight(.semibold)).foregroundStyle(AppTheme.pine)
+                }
+                .disabled(noteDraft == item.note)
+                .opacity(noteDraft == item.note ? 0.55 : 1)
+            }
+            TextField("添加背景、结论或待办备注…", text: $noteDraft, axis: .vertical)
+                .lineLimit(3...7)
+                .font(.system(size: 15))
+                .padding(12)
+                .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                .overlay { RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(AppTheme.line, lineWidth: 1) }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func transcriptPanel(_ item: VoiceRecording) -> some View {
@@ -539,7 +673,7 @@ private struct RecordingDetailView: View {
                             if !item.summary.isEmpty {
                                 analysisMessages = [RecordingAnalysisMessage(role: .assistant, text: item.summary)]
                             } else {
-                                sendAnalysisPrompt("请分析这段录音，概括主要内容、关键主题、决定和待办。", for: item)
+                                generateInitialAnalysis(for: item)
                             }
                         }
                     } label: {
@@ -753,6 +887,28 @@ private struct RecordingDetailView: View {
         sendAnalysisPrompt(prompt, for: item)
     }
 
+    private func generateInitialAnalysis(for item: VoiceRecording) {
+        guard !isAnalyzing else { return }
+        let reply = RecordingAnalysisMessage(role: .assistant, text: "")
+        analysisMessages = [reply]
+        isAnalyzing = true
+        Task {
+            do {
+                let output = try await store.analyze(item, conversation: [], onProgress: { partial in
+                    guard let index = analysisMessages.firstIndex(where: { $0.id == reply.id }) else { return }
+                    analysisMessages[index].text = partial
+                })
+                if let index = analysisMessages.firstIndex(where: { $0.id == reply.id }) {
+                    analysisMessages[index].text = output
+                }
+            } catch {
+                analysisMessages.removeAll { $0.id == reply.id }
+                analysisError = error.localizedDescription
+            }
+            isAnalyzing = false
+        }
+    }
+
     private func sendAnalysisPrompt(_ prompt: String, for item: VoiceRecording) {
         guard !isAnalyzing else { return }
         let userMessage = RecordingAnalysisMessage(role: .user, text: prompt)
@@ -777,13 +933,6 @@ private struct RecordingDetailView: View {
             }
             isAnalyzing = false
         }
-    }
-
-    private func shouldAutoTranscribe(_ item: VoiceRecording) -> Bool {
-        if item.hasUntranscribedSupplement { return true }
-        let transcript = item.transcriptForAnalysis.trimmingCharacters(in: .whitespacesAndNewlines)
-        if transcript.isEmpty { return true }
-        return item.duration >= 45 && transcript.count <= 28
     }
 
     private func playbackPanel(_ item: VoiceRecording) -> some View {
