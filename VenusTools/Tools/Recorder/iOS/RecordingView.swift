@@ -352,9 +352,11 @@ private struct RecordingTranscriptionModelPicker: View {
 
     var body: some View {
         List {
-            Section("语音转写模型") {
+            Section {
                 appleSpeechRow
                 ForEach(selectableModels) { config in transcriptionModelRow(config) }
+            } header: {
+                Text("语音转写模型")
             } footer: {
                 Text("灰色模型尚未下载，请点击右上角模型配置图标，进入模型列表下载。")
             }
@@ -406,7 +408,7 @@ private struct RecordingTranscriptionModelPicker: View {
             try registry.bind(configurationID, to: .recordingTranscription)
             selection = model
             dismiss()
-        } catch { error = error.localizedDescription }
+        } catch { self.error = error.localizedDescription }
     }
 }
 
