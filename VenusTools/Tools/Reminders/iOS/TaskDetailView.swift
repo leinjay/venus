@@ -63,9 +63,14 @@ struct TaskDetailView: View {
                                 .accessibilityLabel("执行日历")
                         }
                     }
+                    if tab == 1 {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button { modelSettingsRequest += 1 } label: { Image(systemName: "cpu") }
+                                .accessibilityLabel("模型配置")
+                        }
+                    }
                     ToolbarItem(placement: .topBarTrailing) {
                         Menu {
-                            if tab == 1 { Button("模型设置") { modelSettingsRequest += 1 } }
                             Button("修改记录") { history = true }
                             Button("移到回收站", role: .destructive) { delete = true }
                         } label: { Image(systemName: "ellipsis.circle") }

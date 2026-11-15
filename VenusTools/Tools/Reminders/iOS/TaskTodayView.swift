@@ -145,6 +145,10 @@ struct TaskTodayView: View {
             .navigationTitle("今日任务概览").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { Button("刷新") { generate() }.disabled(generating) }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { onManageModels?() } label: { Image(systemName: "cpu") }
+                        .accessibilityLabel("模型配置")
+                }
                 ToolbarItem(placement: .confirmationAction) { Button("关闭") { dismiss() } }
             }
         }
